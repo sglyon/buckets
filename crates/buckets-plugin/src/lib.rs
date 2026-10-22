@@ -5,6 +5,8 @@
 use anyhow::{Context, Result, bail, ensure};
 mod agent;
 pub use agent::*;
+mod accounts;
+pub use accounts::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -27,6 +29,7 @@ const MAX_STDERR_BYTES: usize = 16_384;
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
     Agent,
+    Accounts,
     Search,
     Provider,
     Commands,

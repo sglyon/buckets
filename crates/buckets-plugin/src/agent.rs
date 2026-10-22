@@ -1,6 +1,7 @@
 //! Opt-in duplex services. Ordinary one-shot plugins remain unchanged.
 use super::{
-    Capability, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, PROTOCOL_VERSION, PluginRegistry, terminate,
+    AccountAction, AccountEvent, AccountRequest, AccountState, Capability, MAX_REQUEST_BYTES,
+    MAX_RESPONSE_BYTES, PROTOCOL_VERSION, PluginRegistry, terminate,
 };
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -120,10 +121,15 @@ pub struct AgentService {
     config: Value,
     timeout: Duration,
     next_id: u64,
+    pub(super) credentials_allowed: bool,
+    network_allowed: bool,
 }
 impl PluginRegistry {
     pub fn start_agent(&self, id: &str) -> Result<AgentService> {
-        let plugin = self.require(id, Capability::Agent)?;
+        self.start_duplex(id, Capability::Agent)
+    }
+    pub(super) fn start_duplex(&self, id: &str, capability: Capability) -> Result<AgentService> {
+        let plugin = self.require(id, capability)?;
         let executable = if plugin.executable.contains(std::path::MAIN_SEPARATOR) {
             plugin.directory.join(&plugin.executable)
         } else {
@@ -205,10 +211,194 @@ impl PluginRegistry {
             config: plugin.config.clone(),
             timeout: Duration::from_millis(plugin.timeout_ms),
             next_id: 1,
+            credentials_allowed: plugin.supports(Capability::Accounts),
+            network_allowed: plugin.permissions.network,
         })
     }
 }
 impl AgentService {
+    pub(super) fn invoke_accounts(
+        &mut self,
+        request: AccountRequest,
+        mut host: impl FnMut(&str, Value) -> Result<Value>,
+        mut progress: impl FnMut(AccountEvent),
+        cancel: &AtomicBool,
+    ) -> Result<AccountState> {
+        let id = self.next_id;
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .context("Account request sequence exhausted")?;
+        let deadline = Instant::now() + self.timeout.min(Duration::from_secs(300));
+        let pid = self
+            .child
+            .as_ref()
+            .context("Account service is closed")?
+            .id();
+        let writer = self
+            .writer
+            .as_ref()
+            .context("Account input is closed")?
+            .clone();
+        let stopped = AtomicBool::new(false);
+        let (result, stopped_for) = thread::scope(|scope| {
+            let watchdog = scope.spawn(|| {
+                loop {
+                    let reason = if cancel.load(Ordering::Acquire) {
+                        Some("cancelled")
+                    } else if Instant::now() >= deadline {
+                        Some("timed out")
+                    } else {
+                        None
+                    };
+                    if let Some(reason) = reason {
+                        if let Ok(mut bytes) = serde_json::to_vec(
+                            &json!({"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":id}}),
+                        ) {
+                            bytes.push(b'\n');
+                            let _ = writer.try_send(bytes);
+                        }
+                        #[cfg(unix)]
+                        unsafe {
+                            libc::kill(-(pid as i32), libc::SIGTERM);
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                        #[cfg(unix)]
+                        unsafe {
+                            libc::kill(-(pid as i32), libc::SIGKILL);
+                        }
+                        return Some(reason);
+                    }
+                    if stopped.load(Ordering::Acquire) {
+                        return None;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+            });
+            let result =
+                self.invoke_accounts_inner(id, deadline, request, &mut host, &mut progress, cancel);
+            stopped.store(true, Ordering::Release);
+            (result, watchdog.join().ok().flatten())
+        });
+        if let Some(reason) = stopped_for {
+            self.shutdown();
+            bail!("Account request {reason}");
+        }
+        if result.is_err() {
+            self.shutdown();
+        }
+        result
+    }
+
+    fn invoke_accounts_inner(
+        &mut self,
+        id: u64,
+        deadline: Instant,
+        request: AccountRequest,
+        host: &mut impl FnMut(&str, Value) -> Result<Value>,
+        progress: &mut impl FnMut(AccountEvent),
+        cancel: &AtomicBool,
+    ) -> Result<AccountState> {
+        ensure!(self.is_running(), "Account service is not running");
+        ensure!(
+            self.credentials_allowed,
+            "Plugin did not declare accounts capability"
+        );
+        request.validate()?;
+        self.send(json!({"jsonrpc":"2.0","id":id,"method":"accounts.invoke","params":{"protocol_version":PROTOCOL_VERSION,"config":self.config,"request":request}}), deadline, cancel)?;
+        let mut frames = 0;
+        loop {
+            ensure!(!cancel.load(Ordering::Acquire), "Account request cancelled");
+            ensure!(Instant::now() < deadline, "Account request timed out");
+            let frame = match self.reader.recv_timeout(Duration::from_millis(20)) {
+                Ok(frame) => frame?,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(_) => bail!("Account plugin output closed"),
+            };
+            frames += 1;
+            ensure!(frames <= 2048, "Account service exceeded frame budget");
+            ensure!(
+                frame["jsonrpc"] == "2.0",
+                "Account frame has invalid JSON-RPC version"
+            );
+            if let Some(method) = frame.get("method").and_then(Value::as_str) {
+                ensure!(
+                    frame.get("result").is_none() && frame.get("error").is_none(),
+                    "Account request contains response fields"
+                );
+                if method == "accounts.progress" {
+                    ensure!(
+                        frame.get("id").is_none(),
+                        "Account progress must be a notification"
+                    );
+                    let event: AccountEvent = serde_json::from_value(frame["params"].clone())
+                        .context("Invalid account progress")?;
+                    ensure!(event.message.len() <= 4096, "Account progress is too long");
+                    progress(event);
+                    continue;
+                }
+                ensure!(
+                    serde_json::to_vec(&frame)?.len() <= MAX_REQUEST_BYTES,
+                    "Account callback exceeds 1 MiB"
+                );
+                let callback_id = frame
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .context("Account callback requires a string id")?;
+                ensure!(
+                    !callback_id.is_empty() && callback_id.len() <= 128,
+                    "Invalid account callback id"
+                );
+                let allowed = matches!(
+                    method,
+                    "credentials.read"
+                        | "credentials.acquire"
+                        | "credentials.commit"
+                        | "credentials.release"
+                ) || (method == "browser.open"
+                    && request.action == AccountAction::SignIn
+                    && self.network_allowed);
+                ensure!(!cancel.load(Ordering::Acquire), "Account request cancelled");
+                let response = if allowed {
+                    host(
+                        method,
+                        frame.get("params").cloned().unwrap_or_else(|| json!({})),
+                    )
+                } else {
+                    Err(anyhow::anyhow!("Account host operation is not permitted"))
+                };
+                let response = match response {
+                    Ok(result) => json!({"jsonrpc":"2.0","id":callback_id,"result":result}),
+                    Err(error) => {
+                        json!({"jsonrpc":"2.0","id":callback_id,"error":{"code":-32000,"message":format!("{error:#}")}})
+                    }
+                };
+                self.send(response, deadline, cancel)?;
+                continue;
+            }
+            ensure!(
+                frame["id"] == id,
+                "Account response id does not match request"
+            );
+            ensure!(
+                frame.get("result").is_some() != frame.get("error").is_some(),
+                "Account response needs exactly one result or error"
+            );
+            if let Some(error) = frame.get("error") {
+                bail!(
+                    "Account plugin: {}",
+                    error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Account operation failed")
+                );
+            }
+            let state: AccountState = serde_json::from_value(frame["result"].clone())
+                .context("Invalid account result")?;
+            state.validate()?;
+            return Ok(state);
+        }
+    }
     pub fn is_running(&mut self) -> bool {
         // Do not reap here: teardown must signal the owned process group while
         // its PID is still reserved, then wait. EOF/protocol failure marks the
@@ -455,6 +645,17 @@ impl AgentService {
                         method,
                         frame.get("params").cloned().unwrap_or_else(|| json!({})),
                     ),
+                    "credentials.read"
+                    | "credentials.acquire"
+                    | "credentials.commit"
+                    | "credentials.release"
+                        if self.credentials_allowed =>
+                    {
+                        host(
+                            method,
+                            frame.get("params").cloned().unwrap_or_else(|| json!({})),
+                        )
+                    }
                     _ => Err(anyhow::anyhow!("Unknown host method {method}")),
                 };
                 let response = match response {
