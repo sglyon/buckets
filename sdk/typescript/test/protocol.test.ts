@@ -28,6 +28,12 @@ test('service EOF aborts a pending request and runs teardown', async () => {
   p.send({ jsonrpc: '2.0', id: 1, method: 'agent.invoke' }); await tick(); p.input.end(); await p.done;
   assert.equal(closed, true); assert.equal(aborted, true); assert.deepEqual(p.frames(), []);
 });
+test('account service EOF cancels browser authorization without waiting for its timeout', async () => {
+  let cancelled = false;
+  const p = peer({ 'accounts.invoke': async (_, ctx) => new Promise(resolve => { ctx.signal.addEventListener('abort', () => { cancelled = true; resolve({}); }); }) });
+  p.send({ jsonrpc: '2.0', id: 1, method: 'accounts.invoke' }); await tick(); p.input.end(); await p.done;
+  assert.equal(cancelled, true); assert.deepEqual(p.frames(), []);
+});
 test('service shutdown is bounded even if a handler ignores cancellation', async () => {
   const p = peer({ 'agent.invoke': () => new Promise(() => {}) }, { shutdownTimeoutMs: 20 });
   p.send({ jsonrpc: '2.0', id: 1, method: 'agent.invoke' }); await tick(); p.input.end(); await p.done;

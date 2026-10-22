@@ -8,7 +8,8 @@
   ],
   "capabilities": [
     "commands",
-    "agent"
+    "agent",
+    "accounts"
   ],
   "permissions": {
     "read_roots": [
@@ -19,7 +20,7 @@
   },
   "timeout_ms": 300000,
   "config": {
-    "provider": "openai",
+    "provider": "chatgpt",
     "model": "",
     "api_key_env": "OPENAI_API_KEY",
     "base_url": "",
@@ -38,6 +39,7 @@
       "title": "Model provider",
       "kind": "select",
       "options": [
+        "chatgpt",
         "openai",
         "anthropic",
         "compatible"
@@ -47,7 +49,7 @@
       "key": "model",
       "title": "Model ID",
       "kind": "text",
-      "description": "Explicit provider model ID; no default model or credential is selected."
+      "description": "ChatGPT discovers available models after sign-in. Leave empty to use the account’s first available model; API providers require a model ID."
     },
     {
       "key": "api_key_env",

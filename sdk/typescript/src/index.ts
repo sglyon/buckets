@@ -92,7 +92,7 @@ export async function servePlugin(options: PluginOptions): Promise<void> {
       if (target !== undefined) controllers.get(target)?.abort();
       return;
     }
-    if (value.method === 'agent.invoke' && options.lifecycle !== 'oneshot') service = true;
+    if (['agent.invoke', 'accounts.invoke'].includes(value.method) && options.lifecycle !== 'oneshot') service = true;
     if (hasId && controllers.has(id as RpcId)) throw new RpcError(-32600, 'Duplicate in-flight request ID');
     const controller = new AbortController();
     if (hasId) controllers.set(id as RpcId, controller);
@@ -173,3 +173,23 @@ export interface AgentResult { answer: string; citations: Citation[]; results: A
 export interface FileRead { location: string; name?: string; text: string; truncated: boolean; binary: boolean }
 export interface FileSearch { results: AgentFile[]; truncated: boolean }
 
+/** Account management is separate from model tools and workspace checkpoints. */
+export interface AccountRequest {
+  action: 'status' | 'sign_in' | 'sign_out' | 'select' | 'models';
+  account_id?: string;
+}
+export interface AccountInfo { id: string; label: string; connected: boolean; plan_enabled: boolean }
+export interface AccountModel { id: string; name: string }
+export interface AccountState {
+  accounts: AccountInfo[];
+  active_account_id?: string;
+  models: AccountModel[];
+  message?: string;
+  plan_enabled: boolean;
+  first_connection: boolean;
+  usage_url?: string;
+  using_plan: boolean;
+  sign_in_required: boolean;
+  sign_in_label?: string;
+  plan_label?: string;
+}

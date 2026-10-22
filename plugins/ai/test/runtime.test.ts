@@ -58,8 +58,9 @@ test('a live state owner is never stolen', async () => fixture(async directory =
 }));
 test('configuration errors are explicit and never require saving credentials', () => {
   assert.throws(() => readConfig({ api_key: 'secret' }), /environment variables/);
-  assert.throws(() => configureModels(readConfig({})), /Choose a model/);
-  assert.throws(() => configureModels(readConfig({ model: 'test', api_key_env: 'BUCKETS_TEST_MISSING_KEY' })), /BUCKETS_TEST_MISSING_KEY/);
+  assert.equal(readConfig({}).provider, 'chatgpt');
+  assert.throws(() => configureModels(readConfig({})), /Continue with ChatGPT/);
+  assert.throws(() => configureModels(readConfig({ provider: 'openai', model: 'test', api_key_env: 'BUCKETS_TEST_MISSING_KEY' })), /BUCKETS_TEST_MISSING_KEY/);
   assert.throws(() => readConfig({ index_roots: [{ location: '/fixture' }] }), /respect_gitignore/);
 });
 test('SIGKILL during a replay-safe tool resumes the real SQLite harness on retry', async () => fixture(async directory => {

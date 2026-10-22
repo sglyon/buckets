@@ -1,6 +1,6 @@
 export interface IndexRoot { location: string; respect_gitignore: boolean }
 export interface AIConfig {
-  provider: 'openai' | 'anthropic' | 'compatible';
+  provider: 'chatgpt' | 'openai' | 'anthropic' | 'compatible';
   model: string;
   base_url: string;
   api_key_env: string;
@@ -24,11 +24,11 @@ function integer(value: unknown, fallback: number, min: number, max: number): nu
   return value as number;
 }
 export function readConfig(raw: Record<string, unknown>): AIConfig {
-  for (const forbidden of ['api_key', 'embedding_api_key', 'token']) {
+  for (const forbidden of ['api_key', 'embedding_api_key', 'token', 'access_token', 'refresh_token', 'id_token']) {
     if (raw[forbidden] !== undefined) throw new Error('Keep API keys in environment variables; configure an environment variable name instead');
   }
-  const provider = string(raw.provider, 'openai');
-  if (!['openai', 'anthropic', 'compatible'].includes(provider)) throw new Error('AI provider must be openai, anthropic or compatible');
+  const provider = string(raw.provider, 'chatgpt');
+  if (!['chatgpt', 'openai', 'anthropic', 'compatible'].includes(provider)) throw new Error('AI provider must be chatgpt, openai, anthropic or compatible');
   const apiKeyEnv = string(raw.api_key_env, provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   const embeddingKeyEnv = string(raw.embedding_api_key_env);
   for (const name of [apiKeyEnv, embeddingKeyEnv]) if (name && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error('API key environment variable name is invalid');

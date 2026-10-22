@@ -12,12 +12,15 @@ import { RpcError } from '@buckets/plugin-sdk';
 import type { AgentRequest, AgentResult, Citation, AgentFile, FileRead, FileSearch, RequestContext } from '@buckets/plugin-sdk';
 import { endpoint, readConfig, type AIConfig } from './config.ts';
 import { RetrievalIndex } from './retrieval.ts';
+import { configureChatGPTModels, chatGPTFailure } from './chatgpt-provider.ts';
+import type { AccountOptions, ChatGPTAccounts } from './accounts.ts';
 const context = BACKGROUND_CONTEXT;
 const Memory = defineDoc<{ text: string; revision: number; history: { text: string; revision: number }[] }>({
   kind: 'buckets.workspace-memory', version: 1, scope: 'conversation', history: 'latest', fork: 'current',
   initial: () => ({ text: '', revision: 0, history: [] }),
 });
 const Identity = defineDoc<{ workspace_id: string }>({ kind: 'buckets.workspace-identity', version: 1, scope: 'conversation', history: 'latest', fork: 'initial', initial: () => ({ workspace_id: '' }) });
+const ProviderIdentity = defineDoc<{ binding: string }>({ kind: 'buckets.provider-identity', version: 1, scope: 'conversation', history: 'latest', fork: 'initial', initial: () => ({ binding: '' }) });
 const Run = defineDoc<{ request_id: string; fingerprint: string; cancelled: string[] }>({
   kind: 'buckets.workspace-run', version: 1, scope: 'conversation', history: 'latest', fork: 'initial',
   initial: () => ({ request_id: '', fingerprint: '', cancelled: [] }),
@@ -28,7 +31,7 @@ const Admission = defineDocFamily<{ fingerprint: string; cancelled: boolean }, s
   kind: 'buckets.admission', version: 1, family: true, scope: 'conversation', history: 'latest', fork: 'initial',
   initial: fingerprint => ({ fingerprint, cancelled: false }),
 });
-export interface RuntimeOptions { models?: MutableModels }
+export interface RuntimeOptions { models?: MutableModels; accountOptions?: AccountOptions }
 
 /** Direct CLI launches get a guard too; the Rust supervisor additionally holds an OS lock. */
 async function lockDirectory(directory: string): Promise<() => Promise<void>> {
@@ -80,12 +83,14 @@ function modelFailure(reason: string, detail: unknown): Error {
   // Provider diagnostics may contain response bodies or reflected secrets.
   // Classify them into fixed recovery text instead of exposing raw payloads.
   const diagnostic = JSON.stringify(detail ?? '');
+  if (/ChatGPT|subscription_sharing_usage/.test(diagnostic)) return new Error(chatGPTFailure(diagnostic));
   if (/\b(?:401|403)\b|unauthori[sz]ed|authentication|no api key/i.test(diagnostic)) return new Error('The model provider rejected authentication; check the configured API key environment variable and endpoint');
   if (/\b429\b|rate.limit/i.test(diagnostic)) return new Error('The model provider rate limit was reached; wait and submit a new question');
   if (/timeout|timed.out/i.test(diagnostic)) return new Error('The model request timed out; check endpoint availability or choose a faster model');
   return new Error('The model request did not complete; check provider/model configuration or submit a new question');
 }
 export function configureModels(config: AIConfig, models = createModels()): MutableModels {
+  if (config.provider === 'chatgpt') throw new Error('Continue with ChatGPT in Settings → Plugins before asking a question');
   if (!config.model) throw new Error('Choose a model in the AI plugin settings before asking a question');
   if (config.api_key_env && !process.env[config.api_key_env]) throw new Error(`Set ${config.api_key_env} in the Buckets process environment before asking a question`);
   if (config.provider !== 'compatible' && !config.api_key_env) throw new Error('Configure an API key environment variable for the selected provider');
@@ -115,6 +120,8 @@ export class WorkspaceAI {
   private active?: { request: AgentRequest; rpc: RequestContext };
   private closing = false;
   private busy = false;
+  private accountOptions: AccountOptions = {};
+  private activeAccount?: { accounts: ChatGPTAccounts; id: string };
   private constructor(harness: Harness, root: Conversation, models: MutableModels, directory: string, unlock: () => Promise<void>, index: RetrievalIndex, injected: boolean) {
     this.harness = harness; this.root = root; this.models = models; this.directory = directory; this.unlock = unlock; this.index = index; this.injected = injected;
   }
@@ -124,6 +131,7 @@ export class WorkspaceAI {
     const callback = async (method: string, params: unknown): Promise<unknown> => {
       if (!instance?.active) throw new Error('No current workspace request; retry from the active pane');
       instance.active.rpc.signal.throwIfAborted();
+      if (instance.activeAccount) await instance.activeAccount.accounts.assertActive(instance.activeAccount.id);
       instance.active.rpc.notify('agent.progress', { request_id: instance.active.request.request_id, message: method.replace('files.', '') });
       return instance.active.rpc.host.call(method, params);
     };
@@ -139,6 +147,7 @@ export class WorkspaceAI {
       harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'conversation.sqlite')), { models, registry, settings: { retry: { enabled: false, maxRetries: 0, baseDelayMs: 100 }, stream: { timeoutMs: 90000, maxRetries: 0 } } }, context);
       const root = await harness.root(context);
       instance = new WorkspaceAI(harness, root, models, directory, unlock, new RetrievalIndex(join(directory, 'vectors.sqlite')), Boolean(options.models));
+      instance.accountOptions = options.accountOptions ?? {};
       await instance.applyCancellationMarkers();
       return instance;
     } catch (error) { await harness?.close(context); await unlock(); throw error; }
@@ -205,11 +214,23 @@ export class WorkspaceAI {
         return { answer: `Hybrid semantic/keyword search. ${result.receipt.note}`, citations: result.files.map(f => ({ location: f.location, line: f.line })), results: result.files };
       }
       if (!request.prompt.trim()) throw new Error('Ask a question about the current panes');
-      if (!this.injected) configureModels(config, this.models);
-      const model = this.injected ? this.models.getModels()[0] : this.models.getModel(config.provider, config.model);
+      const chatgpt = !this.injected && config.provider === 'chatgpt' ? await configureChatGPTModels(config.model, this.models, rpc, this.accountOptions) : undefined;
+      this.activeAccount = chatgpt ? { accounts: chatgpt.accounts, id: chatgpt.accountId } : undefined;
+      if (!this.injected && !chatgpt) configureModels(config, this.models);
+      const model = this.injected ? this.models.getModels()[0] : chatgpt?.model ?? this.models.getModel(config.provider, config.model);
       if (!model) throw new Error('The configured model is unavailable');
+      const binding = this.injected ? '' : chatgpt ? `chatgpt:${chatgpt.accountId}` : JSON.stringify([config.provider, config.base_url, config.api_key_env]);
+      if (!this.injected) {
+        const previous = await this.harness.snapshot(ProviderIdentity, this.root.id, context);
+        if (previous?.binding !== binding) {
+          // Context is private to the chosen account/provider. Explicit workspace
+          // memory remains separate and can be inspected/edited by the user.
+          await this.root.abort(context); await this.root.reset(undefined, context);
+          await this.root.commit(async tx => { (await tx.doc(ProviderIdentity, this.root.id)).binding = binding; }, context);
+        }
+      }
       const run = await this.harness.snapshot(Run, this.root.id, context);
-      const fingerprint = createHash('sha256').update(JSON.stringify({ prompt: request.prompt, context: request.context })).digest('hex');
+      const fingerprint = createHash('sha256').update(JSON.stringify({ prompt: request.prompt, context: request.context, ...(binding ? { binding } : {}) })).digest('hex');
       const admission = await this.harness.snapshot(Admission, this.root.id, request.request_id, context);
       if (admission?.cancelled || run?.cancelled.includes(request.request_id)) throw new Error('This request was cancelled; submit a new question to run again');
       if ((admission && admission.fingerprint !== fingerprint) || (run?.request_id === request.request_id && run.fingerprint !== fingerprint)) throw new Error('This request belongs to an older workspace snapshot; submit a new question');
@@ -238,9 +259,12 @@ export class WorkspaceAI {
         if (settled.type !== 'input') throw new Error('The model returned an unexpected submission type');
         const answer = await this.root.commit(tx => tx.entry(AssistantEntry, settled.answer), context);
         const text = answer?.model?.flatMap(message => message.role === 'assistant' ? message.content.filter(item => item.type === 'text').map(item => item.text) : []).join('\n') ?? '';
-        return await this.validateAnswer(text, rpc);
+        await chatgpt?.accounts.assertActive(chatgpt.accountId);
+        const result = await this.validateAnswer(text, rpc);
+        await chatgpt?.accounts.assertActive(chatgpt.accountId);
+        return result;
       } finally { rpc.signal.removeEventListener('abort', abort); }
-    } finally { this.active = undefined; this.busy = false; }
+    } finally { this.active = undefined; this.activeAccount = undefined; this.busy = false; }
   }
   private async validateAnswer(text: string, rpc: RequestContext): Promise<AgentResult> {
     let value: AgentResult;

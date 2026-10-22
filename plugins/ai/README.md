@@ -44,9 +44,25 @@ arbitrary host-tool paths. Review it before installing third-party code.
 
 ## Configure
 
-Open **Settings → Plugins → Workspace AI**. No model is selected by default.
-Use the provider's actual model ID. Provider choices are `openai`, `anthropic`
-or `compatible` (a local/proxy server using OpenAI chat completions). A compatible
+Open **Settings → Plugins → Workspace AI** and choose **Continue with ChatGPT**.
+`chatgpt` is the default provider. Sign-in opens the system browser and asks for
+permission to use your eligible ChatGPT plan. The connected account and its
+available models appear in Settings. Leave the model empty to use the first
+available account model, or choose one explicitly. **Manage usage** opens ChatGPT
+settings; reaching a plan limit never switches to paid API calls automatically.
+
+Accounts are separate registrations, even when they share an email address. You
+can add, select, reconnect, and disconnect them. The Rust host stores credentials
+in a separate owner-only account vault with atomic writes and refresh locking;
+tokens never enter settings JSON, pi-durable conversations, or progress messages.
+Disconnect attempts to revoke the remote session and clears local credentials;
+an unconfirmed revocation is reported. Account/provider changes start a fresh
+model context. Explicit workspace memory remains local and inspectable.
+
+API keys and local models remain available: select `openai`, `anthropic`, or
+`compatible` (a local/proxy server using OpenAI chat completions). Existing
+explicit provider settings are preserved. API providers require an actual model
+ID. A compatible
 provider requires `base_url`; clear `api_key_env` for a keyless local server.
 The Pi SDK uses a nonsecret internal compatibility placeholder in that case;
 the plugin removes Authorization before sending the HTTP request. No ambient
@@ -83,6 +99,9 @@ for cloud credentials; never paste key values into JSON. The GUI must inherit
 these variables when launched (for example by launching its executable from an
 appropriately configured shell). Settings contains variable **names**, not keys.
 No credentials are written into model instructions, memory, or plugin logs.
+ChatGPT plan usage covers eligible Responses requests; embeddings retain their
+separately configured local or API provider. Sign-in does not grant Buckets access
+to your ChatGPT conversations.
 
 ## Index scope and limits
 

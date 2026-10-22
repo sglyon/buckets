@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { servePlugin, RpcError, type AgentRequest, type Invocation } from '@buckets/plugin-sdk';
+import { servePlugin, RpcError, type AccountRequest, type AgentRequest, type Invocation } from '@buckets/plugin-sdk';
 import { WorkspaceAI } from './runtime.ts';
+import { ChatGPTAccounts } from './accounts.ts';
+import { readConfig } from './config.ts';
 import { resolve, isAbsolute } from 'node:path';
 
 const commands = [
@@ -27,6 +29,10 @@ process.once('SIGINT', () => { void close().finally(() => process.exit(0)); });
 await servePlugin({
   onClose: close,
   handlers: {
+    'accounts.invoke': async (params, context) => {
+      const value = invocation(params);
+      return new ChatGPTAccounts(context).invoke(value.request as AccountRequest, readConfig(value.config).provider);
+    },
     'commands.list': () => commands,
     'commands.invoke': params => {
       const request = invocation(params).request as { command?: string };
