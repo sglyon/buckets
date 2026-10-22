@@ -17,6 +17,13 @@ cancel and recovery, and clearly labeled answer, citations and workspace memory.
 Do not invent model responses while configuration is missing. Explain the needed
 setup and retain the prompt after a failed request.
 
+For ChatGPT-authenticated requests, show Using ChatGPT plan with Manage usage
+near the composer. Keep that state distinct from merely having a saved account
+while an API-key or local provider is selected. Missing authorization offers a
+direct path to Settings. Plan-limit failures preserve the prompt and provide
+usage recovery; they never silently change the billing provider. Account changes
+cancel or invalidate requests that started under the previous connection.
+
 Citations navigate to actual provider locations. Search results retain source
 locations, match explanations and optional lines, and can become a normal file
 pane without moving files. Terminal processes and unrelated panes survive agent

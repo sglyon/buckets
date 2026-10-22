@@ -402,6 +402,14 @@ directories. Use Reload plugins in the palette after editing manifests.
 Installing a plugin authorizes its executable to run with your account
 permissions, as described above.
 
+## Account capability
+
+The optional `accounts` capability adds generic account connection, selection,
+model discovery and sign-out controls in Settings. Credentials use a private
+Rust-owned store rather than plugin settings. Provider-specific authorization
+stays in the executable plugin. See [the account protocol](plugin-accounts-protocol.md)
+for callbacks, cancellation, public state and the credential lease contract.
+
 ## Provider capability
 
 Provider requests use methods `provider.list`, `provider.stat`, `provider.read`,

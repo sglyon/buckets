@@ -64,11 +64,18 @@ In a terminal, ⌘A selects the scrollback, ⌘C copies the selection, and ⌘V 
 
 ## Workspace AI
 
-The optional TypeScript AI plugin adds **Ask these panes**, **Semantic search these panes**, **Workspace memory**, and **Reindex semantic search** to the command palette. Install it explicitly from the checkout with `scripts/install-ai-plugin` (Node.js 22.19+ and npm required), then reload plugins from the palette. Startup never downloads packages. Configure its model and embedding endpoint in **Settings → Plugins → Workspace AI**; [plugin setup and limits](plugins/ai/README.md) describe credentials and local endpoints.
+The optional TypeScript AI plugin adds **Ask these panes**, **Semantic search these panes**, **Workspace memory**, and **Reindex semantic search** to the command palette. Install it explicitly from the checkout with `scripts/install-ai-plugin` (Node.js 22.19+ and npm required), then reload plugins from the palette. Startup never downloads packages. In **Settings → Plugins → Workspace AI**, choose **Continue with ChatGPT** to connect an eligible ChatGPT plan. New setups use ChatGPT by default; OpenAI/Anthropic API keys and compatible local endpoints remain available through the provider setting. Embeddings have their own endpoint and credentials. See [plugin setup and limits](plugins/ai/README.md).
 
 A command opens or focuses one agent pane for that plugin and workspace. Type a question and press Enter, or Tab to Run. Progress messages appear while the service works; Escape or Cancel stops it. Tab / Shift-Tab reaches Copy, Results, memory and citation controls. Cited files can be previewed in the answer pane or opened in an ordinary file pane. Results opens a normal file list, with search reasons and snippets in its preview. Existing pane-switch, split, close, text-size and theme settings continue to apply.
 
 Workspace memory is an explicit notes editor: inspect it offline, choose Save memory to replace it (including an empty value to clear it), or Revert edits to discard a draft. Closing or quitting asks about unsaved notes. State lives under `$BUCKETS_CONFIG_DIR/agents/<plugin>/<workspace-id>` (the default configuration directory is `~/.config/buckets`). An explicit launch root set defines its stable workspace identity; reopening a different root set keeps separate notes and conversations. Ordinary navigation retains that identity, and launching without paths restores the saved workspace. Reopening a workspace restores agent locations as file panes; it does not resume a cancelled request or rerun a model.
+
+ChatGPT registrations and tokens live separately under the configuration
+directory's private `accounts/<plugin>` vault. They are never settings values or
+workspace notes. Settings supports saved accounts, model selection, sign-out and
+Manage usage. Switching accounts resets model context while retaining explicit
+workspace notes. Usage limits stop a request; Buckets does not silently charge a
+configured API key instead.
 
 Host tools are read-only and bound to explicitly open pane roots plus configured `index_roots`, intersected with the installed plugin's permissions. Configured index roots control search scope and their `.gitignore` policy; they do not silently widen to every open pane. File-pane changes reject stale answers; workspace-memory acknowledgments remain independent of file navigation. The plugin service receives progress and committed answers rather than token streaming. Installed plugin code is trusted executable code, not an OS sandbox; model and embedding requests can send admitted content to the configured provider.
 

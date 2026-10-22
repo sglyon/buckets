@@ -136,3 +136,19 @@ atomic. The current host tools expose no arbitrary shell or file mutation.
 
 Named workspaces, Neovim bulk rename, collections, directory comparison/sync,
 source/artifact lineage and editable workflow recipes remain future features.
+
+## Plugin accounts
+
+Account management is a separate application service from workspace tools.
+Plugins declare the `accounts` capability and implement the generic account
+protocol; Rust owns private credential persistence and supervised execution,
+and GPUI renders public connection state. Provider-specific OAuth, model
+discovery and subscription errors remain in the plugin. The desktop does not
+depend on pi-durable or an OpenAI authentication SDK.
+
+Credential leases serialize token refresh across processes. Credentials live
+outside workspace databases and settings JSON. Browser authorization starts
+only from an explicit sign-in action, never from model tools. Account changes
+invalidate pending presentation and model requests. See
+[the account protocol](plugin-accounts-protocol.md) for the wire contract and
+storage boundaries.

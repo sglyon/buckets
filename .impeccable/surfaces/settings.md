@@ -22,6 +22,15 @@ Persist overrides in the same settings file and apply successful changes live. M
 
 ## Interaction contract
 
+Account-capable plugins expose connection status and account actions in Plugins.
+Workspace AI defaults new setups to Continue with ChatGPT, with API-key and local
+providers retained in the provider selector. Sign-in opens the system browser;
+the Settings page remains usable, shows progress and offers cancellation. Saved
+accounts, account-specific models, sign-out and Manage usage are reachable with
+the same keyboard row navigation. A first successful plan connection explains
+plan usage once. Credentials are private runtime state, never settings JSON.
+Disabled plugins and stale requests cannot reconnect or replace current state.
+
 Command-comma opens or reuses Settings from files, terminals and inputs. Every control is reachable by Tab/Shift-Tab and usable by keyboard. Command-S saves the JSON draft after validation. Form changes apply live when successfully saved. Close returns to the prior workspace focus; dirty JSON needs a clear save/discard path. Invalid JSON, write failures and external-edit conflicts preserve the last applied configuration and explain recovery.
 
 ## Responsive and state contract

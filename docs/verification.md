@@ -273,6 +273,71 @@ and its installed/staged copies removed. Production, human-adopted Acceptance,
 Settings QA and other user apps were preserved. Test fixtures, installed-plugin
 packages and verification logs remain under `target/ai-private-qa`.
 
+## Sign in with ChatGPT verification
+
+The ChatGPT-default AI configuration and generic plugin account service passed
+the final frozen `scripts/check` run: formatting, workspace tests, desktop
+compilation and strict all-targets Clippy. The workspace reported 199 top-level
+passes and nine ignored tests. Under the earlier deduplication convention,
+this is 167 unique regular Rust definitions, excluding repeated keymap/context
+units. Six explicitly installed integration definitions also passed (the three
+existing AI cases plus three new SIWC cases), giving 173 unique Rust definitions
+executed. Optional FFF/Neovim/Lazygit tests were not rerun. Evidence:
+`target/siwc-final-workspace-check.log`,
+`target/siwc-installed-end-to-end.log`, and
+`target/siwc-legacy-installed-end-to-end.log`.
+
+The TypeScript SDK and AI plugin passed 43 tests (8 SDK, 35 AI) and type checking.
+Fixtures exercise real loopback callbacks, signed JWKS/ID-token validation,
+PKCE/state/nonce/audience rejection, stable host and returning registration,
+identity-only grants and explicit reconsent, account-specific models, refresh
+rotation, malformed-refresh preservation, transient/terminal errors, revocation
+and cancellation. Actual Pi Responses fixtures verify namespaced tool execution,
+the supported request payload, account transcript isolation, plan errors,
+401/403/503 recovery, unfinished streams and credential redaction in SQLite.
+Evidence: `target/siwc-typescript-tests.log` and
+`target/siwc-typescript-typecheck.log`.
+
+Independent installed-process tests use the compiled standalone package through
+Rust's actual account service, credential broker, agent service and file broker.
+They cover concurrent process refresh, old credential preservation when a
+replacement is missing, account switching and stale replay rejection, plus the
+existing offline memory, compatible-provider and embedding workflows. The test
+preloader intercepts official auth/API URLs and supplies fixture responses;
+no live ChatGPT account, external model or user credential was used. Initial
+sandbox loopback-listener denial was resolved by running the isolated networking
+fixtures with the required execution permission. This is fixture coverage,
+not certification of a live OpenAI session.
+
+Source review identified missing refresh-token replacement enforcement,
+incorrect generic 403/503 recovery and a missing saved-registration reconnect
+action. The two authentication repairs received an independent confirmation.
+The explicit Reconnect action now targets the saved active registration and
+passes the desktop routing acceptance test; all six desktop state tests and
+strict Clippy passed. Native keyboard/presentation checks for the account rows,
+confirmation and browser return remain unverified. No native app or browser was
+launched for this feature's automated checks; the prior native-automation
+connection problem remains the evidence boundary.
+
+The pristine installed package's production JavaScript and SDK match the
+compiled sources. Its documentation matches the final README. Evidence:
+`target/siwc-install.log` and
+`target/siwc-installed-package-verification.log`. CI explicitly runs both
+installed integration targets after building and installing the plugin. Remote
+CI was not run locally.
+
+After verification, the unchanged user-installed first-party AI package was
+backed up outside plugin discovery at
+`~/.config/buckets/plugin-backups/ai-before-siwc-951d6ad` and replaced with the
+tested package. The settings hash stayed unchanged; account and workspace
+databases were not modified. No user-owned application was stopped. Evidence:
+`target/siwc-user-plugin-update.log`.
+
+The rebuilt app and raw executable share arm64 UUID
+`FA8ED74E-E150-3F44-8387-C80C5D3CA01C`; strict deep codesign verification passed.
+Evidence: `target/siwc-bundle.log` and
+`target/delivery-bundle-verification.log`.
+
 ## Limits of this evidence
 
 - Outgoing cross-application dragging is implemented using native AppKit file dragging, but remains unverified by automation. Bounded CUA attempts did not deliver an outside-window movement that triggered native export; no conclusion about the native export session follows from those attempts. Internal pane dragging and Finder clipboard interoperability were verified. Inbound cross-application drops also require a direct manual pass. These gaps must not be described as verified drag/drop coverage.
@@ -312,12 +377,15 @@ Use the isolated `target/ui-fixture` directories when performing mutations:
 
 The final bundle passed `codesign --verify --deep --strict`. Its arm64 Mach-O UUID matches `target/debug/buckets`, as recorded in `target/delivery-bundle-verification.log`. Native checks above cover the named fixture workflows and captures; they do not certify every TUI, workload, IME or accessibility scenario.
 
-The agent host and pane are included in this bundle. Workspace AI is an explicit
-standalone plugin installation: run `scripts/install-ai-plugin`, restart the
-app, and configure its model and embedding endpoint in Settings. The installer
-does not overwrite an existing plugin. No model is selected by default; offline
-workspace memory is available without provider credentials. The release tests
-installed the plugin only into the isolated QA configuration, preserving human
-configuration directories.
+The agent host, account service and panes are included in this bundle.
+Workspace AI remains an explicit standalone plugin installation using
+`scripts/install-ai-plugin`; the verified package has also been installed into
+this user's existing first-party plugin directory with a preserved backup as
+described above. Reopen the updated app, then use Settings → Plugins → Workspace
+AI → Continue with ChatGPT. New setups default to ChatGPT and can use the first
+available account model automatically. Existing explicit API/local provider
+selections stay active; embeddings retain separate configuration. The installer
+does not overwrite an existing plugin. Offline workspace memory remains
+available without model credentials.
 
 The earlier isolated keybindings Acceptance QA instance quit cleanly after verification; its app and raw-probe child PIDs were confirmed absent and that temporary installation was removed. During later recorder work, an Acceptance QA installation became user-adopted and was preserved. Subsequent checks used the separate private Recorder Test identity, which was cleanly closed and removed. Target fixtures, logs and captures remain available.

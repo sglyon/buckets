@@ -18,6 +18,11 @@ executable. The installed plugin does not depend on checkout symlinks. It refuse
 to overwrite an existing plugin. Restart Buckets after installation. For an
 isolated install, pass `--config-dir /absolute/test/config`.
 
+To upgrade, keep a backup of the existing `plugins/ai` directory outside the
+`plugins` discovery directory before reinstalling. Settings overrides,
+workspace databases and the separate account vault stay in place. Reload
+plugins or restart Buckets after replacing an installed package.
+
 No package download happens at application startup. Installing dependencies is
 an explicit step; application/plugin updates do not silently replace your code.
 

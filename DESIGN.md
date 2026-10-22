@@ -207,6 +207,16 @@ Memory opens editable persistent notes scoped to the workspace and plugin. Save 
 
 Busy, cancellation failure, stale file-pane context, unavailable plugin and invalid request states retain explicit status text. A failed durable cancellation must say it could not be confirmed. Results and citations are checked by the host before navigation. The host exposes typed read-only context/list/read/search callbacks; the AI feature has no arbitrary shell or file-operation tool. Persistent notes and conversations are plugin-owned state rather than writes to browsed files. The source-boundary approval does not certify real cloud providers or live SSH/S3 behavior.
 
+Account-capable plugins extend the existing Settings rows with connection status,
+browser sign-in/cancellation, saved registrations, model choices, sign-out and
+usage links. New Workspace AI setups default to Continue with ChatGPT. Explicit
+API-key and local-provider selections stay active until changed. A first plan
+connection has one dismissible confirmation. The Agent composer offers Settings
+recovery and a compact Using ChatGPT plan / Manage usage state when applicable.
+These are source facts; native sign-in presentation and keyboard behavior still
+require a captured interaction pass. The generic account protocol is documented
+in `docs/plugin-accounts-protocol.md`; credentials never enter Settings JSON.
+
 ### Operation feedback and drag feedback
 
 The persistent status line reports operation text and active-operation counts, with rose error feedback. A dragged file has a raised rounded label with a blue border. Render actual results and filenames; never substitute invented activity metrics.
