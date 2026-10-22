@@ -727,6 +727,19 @@ impl SettingsView {
                     ),
                 });
             }
+            if let Some(request) = crate::account_state::reconnect_active(state) {
+                rows.push(Row {
+                    section: "Plugins".into(),
+                    title: format!(
+                        "{} / Reconnect {}",
+                        plugin.name,
+                        active.map(|account| account.label.as_str()).unwrap_or("account")
+                    ),
+                    description: "Reauthorize this saved account in your browser if a request asks you to sign in again.".into(),
+                    value: "Reconnect".into(),
+                    action: Action::Account(plugin.id.clone(), request),
+                });
+            }
             if let Some(active) = active.filter(|account| account.connected) {
                 rows.push(Row {
                     section: "Plugins".into(),

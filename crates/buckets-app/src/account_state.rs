@@ -1,6 +1,6 @@
 //! Public account presentation and job admission. Credentials never enter this state.
 use anyhow::{Result, ensure};
-use buckets_plugin::AccountState;
+use buckets_plugin::{AccountAction, AccountRequest, AccountState};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -111,6 +111,21 @@ impl Drop for AccountSessions {
     fn drop(&mut self) {
         self.cancel_all();
     }
+}
+
+/// A rejected live request can require reauthorization even while the saved
+/// access token appears current. Preserve this registration rather than adding
+/// another account with the same identity.
+pub fn reconnect_active(state: &AccountState) -> Option<AccountRequest> {
+    let active = state.active_account_id.as_ref()?;
+    state
+        .accounts
+        .iter()
+        .find(|account| &account.id == active)?;
+    Some(AccountRequest {
+        action: AccountAction::SignIn,
+        account_id: Some(active.clone()),
+    })
 }
 
 /// External navigation is an explicit account action, never a model tool.

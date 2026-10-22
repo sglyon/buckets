@@ -2,8 +2,8 @@
 #[path = "../src/account_state.rs"]
 mod account_state;
 
-use account_state::{AccountSessions, external_url};
-use buckets_plugin::AccountState;
+use account_state::{AccountSessions, external_url, reconnect_active};
+use buckets_plugin::{AccountAction, AccountInfo, AccountState};
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -69,6 +69,37 @@ fn closing_the_owner_cancels_every_account_service() {
         sessions.begin("ai").1
     };
     assert!(cancelled.load(Ordering::Acquire));
+}
+
+#[test]
+fn reconnect_targets_the_saved_registration_even_when_its_token_looks_current() {
+    let state = AccountState {
+        active_account_id: Some("registration-b".into()),
+        accounts: vec!["registration-a", "registration-b"]
+            .into_iter()
+            .map(|id| AccountInfo {
+                id: id.into(),
+                label: "same@example.com".into(),
+                connected: true,
+                plan_enabled: true,
+            })
+            .collect(),
+        plan_enabled: true,
+        using_plan: true,
+        ..Default::default()
+    };
+    let reconnect = reconnect_active(&state)
+        .expect("the active registration remains reconnectable after a live 401");
+    assert!(matches!(reconnect.action, AccountAction::SignIn));
+    assert_eq!(reconnect.account_id.as_deref(), Some("registration-b"));
+    assert!(
+        reconnect_active(&AccountState {
+            active_account_id: Some("unknown-registration".into()),
+            ..state
+        })
+        .is_none()
+    );
+    assert!(reconnect_active(&AccountState::default()).is_none());
 }
 
 #[test]
