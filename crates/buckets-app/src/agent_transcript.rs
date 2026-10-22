@@ -1,6 +1,6 @@
 //! Presentation state for a bounded, in-memory conversation. Provider and
 //! durable transcript ownership remain in the plugin.
-use buckets_plugin::{AgentActivity, AgentPhase, AgentResult, AgentUpdate};
+use buckets_plugin::{AgentActivity, AgentMode, AgentPhase, AgentResult, AgentUpdate};
 
 pub const MAX_TURNS: usize = 24;
 
@@ -15,6 +15,9 @@ pub enum TurnState {
 pub struct Turn {
     pub id: u64,
     pub prompt: String,
+    pub mode: AgentMode,
+    pub request_prompt: String,
+    legacy_status: Option<String>,
     pub text: String,
     pub state: TurnState,
     pub phase: AgentPhase,
@@ -25,6 +28,13 @@ pub struct Turn {
     pub result: Option<AgentResult>,
     sequence: u64,
 }
+impl Turn {
+    pub fn legacy_status(&self) -> Option<&str> {
+        (self.sequence == 0)
+            .then_some(self.legacy_status.as_deref())
+            .flatten()
+    }
+}
 #[derive(Default)]
 pub struct Transcript {
     pub turns: Vec<Turn>,
@@ -32,13 +42,20 @@ pub struct Transcript {
     active: Option<u64>,
 }
 impl Transcript {
-    pub fn begin(&mut self, prompt: String) -> u64 {
+    pub fn begin(&mut self, mode: AgentMode, request_prompt: String) -> u64 {
         self.next_id = self.next_id.wrapping_add(1);
         let id = self.next_id;
         self.active = Some(id);
         self.turns.push(Turn {
             id,
-            prompt,
+            prompt: if mode == AgentMode::Index && request_prompt.is_empty() {
+                "Reindex semantic search".into()
+            } else {
+                request_prompt.clone()
+            },
+            mode,
+            request_prompt,
+            legacy_status: None,
             text: String::new(),
             state: TurnState::Streaming,
             phase: AgentPhase::Waiting,
@@ -56,6 +73,16 @@ impl Transcript {
     }
     pub fn get(&self, id: u64) -> Option<&Turn> {
         self.turns.iter().find(|turn| turn.id == id)
+    }
+    pub fn legacy_progress(&mut self, message: &str) {
+        if let Some(turn) = self
+            .active
+            .and_then(|id| self.turns.iter_mut().find(|turn| turn.id == id))
+            && turn.state == TurnState::Streaming
+            && turn.sequence == 0
+        {
+            turn.legacy_status = Some(message.chars().take(512).collect());
+        }
     }
     pub fn update(&mut self, update: AgentUpdate) -> bool {
         let Some(turn) = self

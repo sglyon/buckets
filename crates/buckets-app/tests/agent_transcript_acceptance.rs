@@ -3,7 +3,9 @@ mod agent_transcript;
 use agent_transcript::{
     FollowTail, MAX_TURNS, Transcript, TurnState, literal_code, markdown_blocks,
 };
-use buckets_plugin::{AgentActivity, AgentActivityState, AgentPhase, AgentResult, AgentUpdate};
+use buckets_plugin::{
+    AgentActivity, AgentActivityState, AgentMode, AgentPhase, AgentResult, AgentUpdate,
+};
 
 fn snapshot(sequence: u64, text: &str) -> AgentUpdate {
     AgentUpdate {
@@ -16,7 +18,7 @@ fn snapshot(sequence: u64, text: &str) -> AgentUpdate {
 #[test]
 fn snapshots_replace_and_stale_updates_cannot_rewrite_a_stopped_or_completed_turn() {
     let mut transcript = Transcript::default();
-    let first = transcript.begin("Read these files".into());
+    let first = transcript.begin(AgentMode::Ask, "Read these files".into());
     assert!(transcript.update(snapshot(3, "Hello, 世界")));
     assert!(!transcript.update(snapshot(2, "older")));
     assert!(transcript.update(snapshot(4, "Replacement after a tool")));
@@ -28,7 +30,7 @@ fn snapshots_replace_and_stale_updates_cannot_rewrite_a_stopped_or_completed_tur
     );
     assert_eq!(transcript.get(first).unwrap().state, TurnState::Stopped);
     assert!(transcript.get(first).unwrap().result.is_none());
-    let second = transcript.begin("Follow up".into());
+    let second = transcript.begin(AgentMode::Ask, "Follow up".into());
     transcript.update(snapshot(1, "partial"));
     transcript.finish(
         Ok(AgentResult {
@@ -45,7 +47,7 @@ fn snapshots_replace_and_stale_updates_cannot_rewrite_a_stopped_or_completed_tur
 #[test]
 fn activity_collapses_on_text_without_overriding_the_users_explicit_choice() {
     let mut transcript = Transcript::default();
-    let id = transcript.begin("Question".into());
+    let id = transcript.begin(AgentMode::Ask, "Question".into());
     let activity = AgentActivity {
         id: "read-1".into(),
         title: "Read README.md".into(),
@@ -76,7 +78,7 @@ fn activity_collapses_on_text_without_overriding_the_users_explicit_choice() {
 fn transcript_is_bounded_and_private_context_reset_discards_displayed_history() {
     let mut transcript = Transcript::default();
     for index in 0..MAX_TURNS + 3 {
-        transcript.begin(format!("Question {index}"));
+        transcript.begin(AgentMode::Ask, format!("Question {index}"));
         transcript.finish(Ok(AgentResult::default()), false);
     }
     assert_eq!(transcript.turns.len(), MAX_TURNS);
@@ -85,7 +87,7 @@ fn transcript_is_bounded_and_private_context_reset_discards_displayed_history() 
     transcript.clear();
     assert!(transcript.turns.is_empty());
     assert!(!transcript.update(snapshot(900, "previous account")));
-    let next = transcript.begin("New account".into());
+    let next = transcript.begin(AgentMode::Ask, "New account".into());
     assert_ne!(old, next);
 }
 #[test]
@@ -174,4 +176,44 @@ fn fenced_code_keeps_exact_copy_bytes_and_file_previews_cannot_break_out() {
     let children = preview.children().unwrap();
     assert_eq!(children.len(), 1);
     assert!(matches!(&children[0],markdown::mdast::Node::Code(code) if code.value==hostile));
+}
+
+#[test]
+fn retry_retains_request_mode_and_exact_prompt_including_empty_index_requests() {
+    let mut transcript = Transcript::default();
+    let search = transcript.begin(AgentMode::Search, "  find café  ".into());
+    transcript.finish(Err("Offline".into()), false);
+    let turn = transcript.get(search).unwrap();
+    assert_eq!(turn.mode, AgentMode::Search);
+    assert_eq!(turn.request_prompt, "  find café  ");
+    let index = transcript.begin(AgentMode::Index, String::new());
+    transcript.stop();
+    let turn = transcript.get(index).unwrap();
+    assert_eq!(turn.mode, AgentMode::Index);
+    assert!(turn.request_prompt.is_empty());
+    assert_eq!(turn.prompt, "Reindex semantic search");
+}
+
+#[test]
+fn legacy_progress_is_bounded_and_replaced_by_structured_status() {
+    let mut transcript = Transcript::default();
+    let id = transcript.begin(AgentMode::Ask, "Question".into());
+    transcript.legacy_progress(&"Reading files…".repeat(100));
+    assert_eq!(
+        transcript
+            .get(id)
+            .unwrap()
+            .legacy_status()
+            .unwrap()
+            .chars()
+            .count(),
+        512
+    );
+    transcript.update(snapshot(1, "Real response"));
+    assert!(transcript.get(id).unwrap().legacy_status().is_none());
+    transcript.legacy_progress("Legacy update arriving late");
+    assert!(transcript.get(id).unwrap().legacy_status().is_none());
+    transcript.stop();
+    transcript.legacy_progress("Late status after stop");
+    assert!(transcript.get(id).unwrap().legacy_status().is_none());
 }

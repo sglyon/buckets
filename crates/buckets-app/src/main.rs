@@ -3109,7 +3109,7 @@ impl Browser {
                     div()
                         .flex_shrink_0()
                         .px_3()
-                        .py_3()
+                        .py_2()
                         .bg(rgb(if active {
                             colors.surface
                         } else {
@@ -3119,20 +3119,10 @@ impl Browser {
                         .border_color(rgb(if active { colors.accent } else { colors.border }))
                         .child(
                             div()
-                                .text_size(ui(13.))
+                                .text_size(ui(12.))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child(title),
-                        )
-                        .child(
-                            div()
-                                .mt_1()
-                                .text_size(ui(10.))
-                                .text_color(rgb(colors.muted))
                                 .truncate()
-                                .child(format!(
-                                    "Read-only tools · workspace {}",
-                                    self.workspace_id
-                                )),
+                                .child(title),
                         ),
                 )
                 .child(div().flex_1().min_h_0().child(view.clone()))

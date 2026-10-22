@@ -50,6 +50,7 @@ enum Control {
     Activity(u64),
     Latest,
     Results,
+    More,
     Memory,
     Settings,
     ManageUsage,
@@ -90,6 +91,8 @@ pub struct AgentView {
     service: ServiceCache,
     selected: Control,
     memory_open: bool,
+    compact_footer: bool,
+    more_open: bool,
     memory_saved: Option<String>,
     memory_dirty: bool,
     close_prompt: bool,
@@ -132,6 +135,11 @@ impl AgentView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.bind_keys([
+            KeyBinding::new(
+                "shift-enter",
+                gpui_component::input::Enter { secondary: true },
+                Some("BucketsAgent"),
+            ),
             KeyBinding::new("tab", NextControl, Some("BucketsAgent")),
             KeyBinding::new("shift-tab", PreviousControl, Some("BucketsAgent")),
         ]);
@@ -191,6 +199,8 @@ impl AgentView {
             service: Arc::new(Mutex::new(None)),
             selected: Control::Composer,
             memory_open: matches!(mode, AgentMode::Memory),
+            compact_footer: false,
+            more_open: false,
             memory_saved: None,
             memory_dirty: false,
             close_prompt: false,
@@ -279,11 +289,7 @@ impl AgentView {
         self.error = false;
         self.message = "Working… · Escape cancels".into();
         if matches!(mode, AgentMode::Ask | AgentMode::Search | AgentMode::Index) {
-            self.transcript.begin(if prompt.is_empty() {
-                "Reindex semantic search".into()
-            } else {
-                prompt.to_owned()
-            });
+            self.transcript.begin(mode, prompt.to_owned());
             self.last_sent = Some(prompt.to_owned());
             self.result = None;
             if self.composer.read(cx).value().as_str() == prompt {
@@ -314,6 +320,7 @@ impl AgentView {
                 }
             }
         } else if !event.message.is_empty() {
+            self.transcript.legacy_progress(&event.message);
             self.message = event.message.chars().take(512).collect();
         }
         cx.notify();
@@ -509,15 +516,15 @@ impl AgentView {
             if !turn.activities.is_empty() {
                 controls.push(Control::Activity(turn.id));
             }
-            if !turn.text.is_empty() {
-                controls.push(Control::CopyTurn(turn.id));
-                if let Some((_, blocks)) = self.rendered.get(&turn.id) {
-                    for (index, block) in blocks.iter().enumerate() {
-                        if block.code.is_some() {
-                            controls.push(Control::CopyCode(turn.id, index));
-                        }
+            if let Some((text, blocks)) = self.rendered.get(&turn.id)
+                && !text.is_empty()
+            {
+                for (index, block) in blocks.iter().enumerate() {
+                    if block.code.is_some() {
+                        controls.push(Control::CopyCode(turn.id, index));
                     }
                 }
+                controls.push(Control::CopyTurn(turn.id));
             }
             if !self.busy && matches!(turn.state, TurnState::Stopped | TurnState::Failed) {
                 controls.push(Control::Retry(turn.id));
@@ -541,11 +548,17 @@ impl AgentView {
         {
             controls.push(Control::Results);
         }
-        controls.extend([Control::Memory, Control::Settings]);
-        if self
-            .account
-            .as_ref()
-            .is_some_and(|account| account.using_plan && account.usage_url.is_some())
+        if self.compact_footer {
+            controls.push(Control::More);
+        }
+        if !self.compact_footer || self.more_open {
+            controls.extend([Control::Memory, Control::Settings]);
+        }
+        if (!self.compact_footer || self.more_open)
+            && self
+                .account
+                .as_ref()
+                .is_some_and(|account| account.using_plan && account.usage_url.is_some())
         {
             controls.push(Control::ManageUsage);
         }
@@ -615,8 +628,8 @@ impl AgentView {
                     && let Some(turn) = self.transcript.get(id)
                 {
                     cx.emit(AgentViewEvent::Run {
-                        mode: AgentMode::Ask,
-                        prompt: turn.prompt.clone(),
+                        mode: turn.mode,
+                        prompt: turn.request_prompt.clone(),
                         memory_update: None,
                     });
                 }
@@ -627,6 +640,7 @@ impl AgentView {
                 self.scroll.scroll_to_bottom();
             }
             Control::Results => cx.emit(AgentViewEvent::Results),
+            Control::More => self.more_open = !self.more_open,
             Control::Settings => cx.emit(AgentViewEvent::Settings),
             Control::ManageUsage => {
                 if let Some(url) = self
@@ -718,47 +732,45 @@ impl AgentView {
         }
         cx.notify();
     }
+    fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let focused_input = if self.composer.focus_handle(cx).is_focused(window) {
+            Some(self.composer.clone())
+        } else if self.memory.focus_handle(cx).is_focused(window) {
+            Some(self.memory.clone())
+        } else {
+            None
+        };
+        if focused_input.is_some_and(|input| {
+            input.update(cx, |input, cx| {
+                input.marked_text_range(window, cx).is_some()
+            })
+        }) {
+            return false;
+        }
+        if self.close_prompt {
+            self.activate(Control::KeepEditing, window, cx);
+        } else if self.preview.is_some() {
+            self.preview = None;
+            cx.notify();
+        } else if self.busy {
+            self.cancel(cx);
+        } else if self.memory_open {
+            self.memory_open = false;
+            self.composer.focus_handle(cx).focus(window);
+            cx.notify();
+        } else {
+            self.selection_hold = false;
+            self.focus.focus(window);
+        }
+        true
+    }
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let modifiers = event.keystroke.modifiers;
-        if key == "enter"
-            && self.composer.focus_handle(cx).is_focused(window)
-            && !modifiers.platform
-            && !modifiers.control
-            && !modifiers.alt
-        {
-            let composing = self.composer.update(cx, |input, cx| {
-                input.marked_text_range(window, cx).is_some()
-            });
-            if composing {
-                return;
-            }
-            if modifiers.shift {
-                self.composer
-                    .update(cx, |input, cx| input.replace("\n", window, cx));
-            } else if !event.is_held {
-                self.submit(cx);
-            }
-            cx.stop_propagation();
-            return;
-        }
         if key == "escape" && !modifiers.platform && !modifiers.control && !modifiers.alt {
-            if self.close_prompt {
-                self.activate(Control::KeepEditing, window, cx);
-            } else if self.preview.is_some() {
-                self.preview = None;
-                cx.notify();
-            } else if self.busy {
-                self.cancel(cx);
-            } else if self.memory_open {
-                self.memory_open = false;
-                self.composer.focus_handle(cx).focus(window);
-                cx.notify();
-            } else {
-                self.selection_hold = false;
-                self.focus.focus(window);
+            if self.escape(window, cx) {
+                cx.stop_propagation();
             }
-            cx.stop_propagation();
             return;
         }
         if (self.focus.is_focused(window)
@@ -823,7 +835,7 @@ impl AgentView {
             )))
             .px_2()
             .py_1()
-            .text_size(ui(11.))
+            .text_size(ui(if control == Control::Run { 11. } else { 10. }))
             .border_1()
             .border_color(rgb(if selected {
                 colors.accent
@@ -941,6 +953,8 @@ impl AgentView {
 impl Render for AgentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme::palette(cx);
+        self.compact_footer =
+            self.scroll.bounds().size.width < ui(520.).to_pixels(window.rem_size());
         // A mouse selection holds the visible text stable until focus leaves the
         // transcript or Jump to latest is chosen. Snapshots continue accumulating.
         let ids = self
@@ -1134,18 +1148,18 @@ impl Render for AgentView {
                     message = message.child(block_view);
                 }
                 if turn.state == TurnState::Streaming {
-                    let label = match turn.phase {
+                    let label = turn.legacy_status().unwrap_or(match turn.phase {
                         AgentPhase::Waiting => "Working…",
                         AgentPhase::Reading => "Reading files…",
                         AgentPhase::Responding => "Responding…",
                         AgentPhase::Verifying => "Checking references…",
-                    };
+                    });
                     message = message.child(
                         div()
                             .mt_2()
-                            .text_size(ui(11.))
-                            .text_color(rgb(colors.accent))
-                            .child(label),
+                            .text_size(ui(10.))
+                            .text_color(rgb(colors.muted))
+                            .child(label.to_owned()),
                     );
                 }
                 if matches!(turn.state, TurnState::Stopped | TurnState::Failed) {
@@ -1304,6 +1318,37 @@ impl Render for AgentView {
             .track_focus(&self.focus)
             .key_context("BucketsAgent")
             .capture_key_down(cx.listener(Self::on_key))
+            .capture_action(cx.listener(
+                |this, action: &gpui_component::input::Enter, window, cx| {
+                    // Input's multiline Enter action inserts a newline before emitting
+                    // PressEnter. Intercept the action itself, ahead of the input.
+                    if !this.composer.focus_handle(cx).is_focused(window)
+                        || this.composer.update(cx, |input, cx| {
+                            input.marked_text_range(window, cx).is_some()
+                        })
+                    {
+                        cx.propagate();
+                        return;
+                    }
+                    if action.secondary || window.modifiers().shift {
+                        this.composer
+                            .update(cx, |input, cx| input.replace("\n", window, cx));
+                    } else {
+                        this.submit(cx);
+                    }
+                    cx.stop_propagation();
+                },
+            ))
+            .capture_action(
+                cx.listener(|this, _: &gpui_component::input::Escape, window, cx| {
+                    if this.escape(window, cx) {
+                        cx.stop_propagation();
+                    } else {
+                        // Let the input dismiss its marked text before pane actions.
+                        cx.propagate();
+                    }
+                }),
+            )
             .capture_action(cx.listener(|this, _: &NextControl, window, cx| {
                 this.move_focus(1, window, cx);
                 cx.stop_propagation();
@@ -1366,9 +1411,29 @@ impl Render for AgentView {
                                 .is_some_and(|result| !result.results.is_empty()),
                             |el| el.child(self.button("Open results", Control::Results, cx)),
                         )
+                        .when(self.compact_footer, |el| {
+                            el.child(self.button(
+                                if self.more_open { "Less" } else { "More" },
+                                Control::More,
+                                cx,
+                            ))
+                        })
+                        .when(!self.compact_footer, |el| {
+                            el.child(self.button("Memory", Control::Memory, cx))
+                                .child(self.button("Settings", Control::Settings, cx))
+                        }),
+                );
+            if self.compact_footer && self.more_open {
+                footer = footer.child(
+                    div()
+                        .mt_2()
+                        .flex()
+                        .flex_wrap()
+                        .gap_2()
                         .child(self.button("Memory", Control::Memory, cx))
                         .child(self.button("Settings", Control::Settings, cx)),
                 );
+            }
             let mut account = div()
                 .mt_2()
                 .flex()
@@ -1385,7 +1450,7 @@ impl Render for AgentView {
                             .clone()
                             .unwrap_or_else(|| "Using account plan".into()),
                     );
-                    if state.usage_url.is_some() {
+                    if state.usage_url.is_some() && (!self.compact_footer || self.more_open) {
                         account =
                             account.child(self.button("Manage usage", Control::ManageUsage, cx));
                     }
