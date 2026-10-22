@@ -86,7 +86,7 @@ components:
 - Code-first implementation was approved. No external comp or generated reference board is claimed. The document refresh merges implementation facts into the existing design commitments.
 - Recorder evidence adds `.impeccable/review/recording-desktop.png` (1440×900, 13pt), `.impeccable/review/recording-compact24.png` (960×640, 24pt), `.impeccable/review/recording-verdict.md` and `target/recording-private-qa/native-verification.md`. The bounded recorder presentation verdict is SHIP for frozen binary `DBE208BB-F167-3D5B-9462-E49E0CF54290`; it does not certify subsequent theme changes.
 - The implemented Agent pane uses presentation in `agent_view.rs`, orchestration in `agent_session.rs` and context policy/workspace identity in `agent_context.rs`. Frozen AI build `A33E70B0-E63E-3F9B-919B-547CE9719C50` passed source-boundary review (`.impeccable/review/ai-boundary-verdict.md`); this is separate from presentation approval.
-- AI native presentation and input are **NOT REVIEWED**. Native inventory succeeded, but a duplicate QA registration error and then a hanging connection to the corrected isolated app prevented an accessibility tree, bound app connection, input or screenshots. The bounded attempt was interrupted. No AI UI interaction or capture exists; compiler, protocol and installed integration checks do not establish visual ship readiness.
+- The earlier AI build could not receive native review because app selection hung. The streaming successor `6DAD8497-D6AC-358B-940B-6F5D65D12D35` now has actual desktop/compact captures and keyboard confirmation: `.impeccable/review/streaming-verdict.md`. This proves the named transcript interactions, not uncaptured account sign-in or memory-editing flows.
 - Current theme build `16BE6073-23E8-3598-AAB4-EEB4EA1E2C3A` is compiled, but its native presentation is **NOT REVIEWED**: the isolated app connection hung twice before any screenshot, accessibility tree or input evidence. No theme capture or native theme coverage exists. `.impeccable/review/theme-verdict.md` records this unavailable review; prior captures and automated checks do not substitute for it.
 - These captures establish the workspace, Quick Look, Settings, bookmarks, inline-filter and Shortcuts composition in the captured states. The shortcut captures show Workspace scope and compact 24-point wrapping with the effective value and Return/footer access. Static images do not prove key handling, JSON guards, persistence, terminal ownership or assistive-technology behavior. Live remap, disable/reset, conflict retention and terminal-input ownership were checked separately by the native verifier against build `DAF11CDE-C063-3E15-B012-14C7DFF66A5C`.
 
@@ -199,7 +199,15 @@ The optional side preview stays bounded. Space opens or closes Quick Look; Escap
 
 ### Agent answers, results and workspace notes
 
-The generic Agent pane reuses the resolved workspace background, text, muted labels, borders, focus accent and scaled type. Its scrolling body renders the completed answer, progress messages, cited files and optional file preview. The fixed lower composer provides Run / Cancel, Copy, Results and Memory, followed by a wrapping status/instruction area. Answers arrive when completed; progress messages are not token streaming. These are implemented source facts, with no native AI presentation or keyboard verification yet.
+The generic Agent pane reuses the resolved workspace background, text, muted labels, borders, focus accent and scaled type. A quiet editor-native transcript shows submitted prompts and live Markdown answers in place. Activity occupies one collapsible disclosure; response/code copy, retry and validated references belong to each turn. The lower multiline composer provides Send / Stop and compact account/settings/memory access. Enter sends, Shift-Enter inserts a newline, and IME composition does not submit. Partial responses remain visibly provisional, stopped or failed until a final result is validated.
+
+The transcript retains a bounded in-memory history separately from plugin-owned
+durable model state. Stable turn/control identities preserve keyboard focus
+while actions appear. Following pauses when the reader scrolls back or selects
+text; Jump to latest resumes it. Completed Markdown blocks keep stable render
+identities while the active block updates. Model links, images and HTML are
+inert; final host-validated references own file navigation. Native evidence for
+these changes is recorded separately from source and transport checks.
 
 Each cited file has an explicit Preview and Open in file pane action. Results opens a real file-result pane beside the Agent pane; its selection preview retains the indexed line, retrieval reason and snippet. The first-party plugin performs hybrid keyword/vector retrieval over bounded text prefixes. Result explanations must preserve the prefix-only limitation and reported skips/truncation rather than implying complete-file or exhaustive search.
 
@@ -288,7 +296,7 @@ The Layout section records the implemented desktop compact mode. The supplied 96
 - Marked/current/active: use the distinct treatments defined under Components.
 - Delete: use an explicit confirmation prompt; conflict and read-only failures must remain textual.
 - Offline or unavailable provider: surface the actual error; do not imply a successful connection.
-- Agent state: completed answers, progress/cancel messages, cited-file actions, result explanations and dirty-note close guards are implemented in source. Their AI native presentation/input verification is NOT REVIEWED; no AI screenshots were produced.
+- Agent state: live Markdown, code/table layout, multiline send, stopped partial replies, keyboard Retry, copied code, compact secondary controls and final reference preview received native confirmation on the frozen streaming build. IME composition, account-switch isolation and follow-tail invariants have source/test coverage; an actual IME, live-account switching and every memory-editing guard were not driven in this pass.
 - Verification boundary: screenshots cover the named workspace, Quick Look, Settings, bookmark, inline-filter, Shortcuts and frozen recorder states, including compact layouts and validation feedback. The subsequent live-theme controls have no native captures or input verification, and their presentation verdict is NOT REVIEWED. They show layout and displayed state, while shortcut execution, conflict handling and input ownership rely on the separate native matrix. Uncaptured states require their own evidence; source presence alone is not a completed interaction check. See `docs/verification.md` for the separately verified native workflows.
 
 ## Content voice

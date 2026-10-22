@@ -338,6 +338,92 @@ The rebuilt app and raw executable share arm64 UUID
 Evidence: `target/siwc-bundle.log` and
 `target/delivery-bundle-verification.log`.
 
+## Streaming agent transcript (2026-10-22)
+
+The user reported successful ChatGPT sign-in and a successful live answer before
+this change. That is user-reported live success, separate from the deterministic
+provider and account fixtures below.
+
+The desktop now retains up to 24 in-memory turns, renders real provisional
+Markdown snapshots, and preserves partial replies on Stop or failure. Only final
+host-validated results supply file actions. The composer, stable keyboard
+controls, activity disclosure, code/response copy, follow-tail and Jump to latest
+have focused presentation-state coverage. Links, images, reference definitions,
+autolinks and raw HTML are neutralized before GPUI's Markdown parser; the
+independent hostile-Markdown test reparses the output and rejects active nodes.
+
+The frozen initial check passed `scripts/check`: formatting, 209 Rust test
+executions with 12 ignored, compilation and strict workspace all-target Clippy.
+The TypeScript SDK and plugin passed 47 tests and type checking. Nine explicitly
+installed integration tests passed against the pristine standalone production
+package: three new streaming cases, three existing AI cases, and three ChatGPT
+account cases. The real Pi/compatible-provider fixture proves decoded text is
+observable while HTTP is still open, fragmented Unicode survives, tool activity
+and final references arrive, cancellation reaps the service, stale admissions
+cannot replay, and malformed final output preserves a draft without creating
+file actions. These tests use no live account credentials.
+
+Evidence: `target/streaming-final-workspace-check.log`,
+`target/streaming-typescript-{tests,typecheck}.log`,
+`target/streaming-installed-end-to-end.log`,
+`target/streaming-legacy-installed-end-to-end.log`, and
+`target/streaming-siwc-installed-end-to-end.log`.
+
+Independent review then found an invocation budget that counted progress but
+omitted host callbacks. The repaired boundary charges physical wire bytes for
+every inbound frame, including whitespace, callbacks and final responses. A
+callback-only regression exhausts the 256 MiB budget before callback 257 can
+dispatch and confirms service teardown. Focused streaming, agent, account and
+strict plugin Clippy checks passed; evidence is `target/stream-budget-*.log`.
+
+Native review uses two uniquely identified private app bundles, isolated config
+folders, and a deterministic no-network Python plugin. The normal user-owned
+app, accounts and workspace databases are never driven. The first native pass
+covered 1440×900 at 13pt and 960×640 at 24pt. It exposed Enter being intercepted
+by the input component and excessive compact header/footer height. Independent
+visual review found the Markdown/code/table hierarchy readable. An initial
+stale-context error was caused by the fixture rewriting its own README at
+service startup; the host correctly refused final actions. The fixture now
+creates that file only when absent, and preserves its metadata throughout all
+57 snapshots and final citation.
+
+The final consolidated `scripts/check` passed after the review repairs: 211
+top-level unfiltered Rust test executions, one additional nested subprocess
+check, 12 ignored, no failures, plus formatting, compilation and strict
+workspace all-target Clippy. The app transcript acceptance target has eight
+cases. TypeScript and installed-plugin production code remained unchanged from
+the passing 47 tests/typecheck and nine installed cases. Evidence:
+`target/streaming-final-consolidated-check.log`. Independent re-review approved
+all five repairs plus the explicit Shift-Enter action binding.
+
+The one native confirmation round verified plain Enter sends, Shift-Enter
+inserts a newline, Escape stops and retains a partial reply, Shift-Tab reaches
+Retry and Return starts it again, code copy/paste preserves indentation,
+More exposes Memory/Settings and collapses again, failed text remains visible,
+and a validated reference opens a real local preview using keyboard controls
+and Page Down. The large-font confirmation includes a 480-point agent pane,
+and the narrower 320-point layout was also exercised. Native screenshots are
+`.impeccable/review/streaming-{active,desktop,compact24,error}.jpg`; the bounded
+verdict is `streaming-verdict.md` beside them. Actual IME input, VoiceOver,
+live-provider latency, live-account switching and restoration of the visual
+transcript across launches are not claimed. Follow-tail and selection-freeze
+invariants have deterministic state coverage; native Page Up checked history
+navigation after completion. No transcript restoration is implemented.
+
+The delivered raw executable and signed bundle share arm64 UUID
+`6DAD8497-D6AC-358B-940B-6F5D65D12D35`; strict deep codesign passed. Evidence:
+`target/streaming-confirmation-build.log` and
+`target/streaming-delivery-bundle-verification.log`. Both owned QA apps were
+quit, while the normal user-owned app was left running.
+
+The unchanged first-party user plugin was backed up outside discovery at
+`~/.config/buckets/plugin-backups/ai-before-streaming-c44cf3a` and replaced with
+the pristine tested streaming package. All seven AI JavaScript modules plus the
+SDK match the current build; settings hash stayed unchanged, and account vaults
+and workspace databases were not modified. Evidence:
+`target/streaming-user-plugin-update.log`. Reopen Buckets to load the new app
+and plugin process. Remote CI was updated but not run locally.
+
 ## Limits of this evidence
 
 - Outgoing cross-application dragging is implemented using native AppKit file dragging, but remains unverified by automation. Bounded CUA attempts did not deliver an outside-window movement that triggered native export; no conclusion about the native export session follows from those attempts. Internal pane dragging and Finder clipboard interoperability were verified. Inbound cross-application drops also require a direct manual pass. These gaps must not be described as verified drag/drop coverage.

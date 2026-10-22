@@ -113,6 +113,21 @@ before stopping the model service; the plugin reconciles that record before
 resuming durable work. A read-only provider call already in progress may finish
 later, while the watchdog stops the model service independently.
 
+Streaming is an observation of real pi-durable generation and tool events.
+The plugin extracts provisional Markdown answer text and sends bounded,
+sequenced full snapshots through the existing progress channel. The Rust host
+validates sequence, size and activity limits; the UI may coalesce intermediate
+snapshots without corrupting text. Final answers and file references still
+pass the original admission and broker validation before becoming actionable.
+Reasoning blocks, raw tool output and provider diagnostics do not enter public
+streaming updates.
+
+`agent_transcript.rs` owns bounded presentation history, turn lifecycle,
+following intent and inert Markdown preparation. The view renders this state
+and dispatches explicit turn actions. Account/provider changes clear visible
+conversation context; ordinary cancellation retains a marked partial reply.
+Visible pane history is not a second durable conversation store.
+
 Workspace identity is distinct from a configuration profile: an explicit
 initial set of provider locations defines a stable workspace anchor, while a
 launch without locations restores the saved workspace identity. Navigation does

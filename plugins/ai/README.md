@@ -39,8 +39,16 @@ an explicit step; application/plugin updates do not silently replace your code.
   previous values are retained in the document (last 20 edits).
 - **Reindex semantic search**: explicitly rebuild the selected index scope.
 
-These are progress messages, not token streaming. Model answers are returned
-once committed by the harness. Tools cannot mutate files or invoke arbitrary
+The answer streams as provisional Markdown while the real harness runs, with
+one collapsible tool-activity disclosure. Questions and replies remain in a
+bounded in-memory transcript. Stop/error retains partial text; Retry starts a
+fresh request. Final citations and file actions appear only after validation.
+Enter sends and Shift-Enter inserts a newline. Scrolling back pauses following;
+Jump to latest resumes it. Responses and code can be copied separately.
+The visible transcript does not restore across app launches; durable model
+state and explicitly saved workspace notes remain separate.
+
+Tools cannot mutate files or invoke arbitrary
 shell commands. The trusted plugin executable still inherits OS permissions;
 the host API boundary is not an operating-system sandbox. The trusted bundled
 manifest grants `/`; the host still narrows each invocation to current pane

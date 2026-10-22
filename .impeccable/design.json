@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-22T00:52:34.272478+00:00",
+  "generatedAt": "2026-10-22T13:33:58.577897+00:00",
   "title": "Design System: Buckets",
   "extensions": {
     "shadows": [],
@@ -40,7 +40,12 @@
         ".impeccable/review/recording-verdict.md",
         "target/recording-private-qa/native-verification.md",
         ".impeccable/review/theme-verdict.md",
-        ".impeccable/review/ai-boundary-verdict.md"
+        ".impeccable/review/ai-boundary-verdict.md",
+        ".impeccable/review/streaming-active.jpg",
+        ".impeccable/review/streaming-desktop.jpg",
+        ".impeccable/review/streaming-compact24.jpg",
+        ".impeccable/review/streaming-error.jpg",
+        ".impeccable/review/streaming-verdict.md"
       ],
       "unverified": [
         "Screen-reader behavior",
@@ -86,6 +91,15 @@
           "No live SSH/S3 certification"
         ],
         "requiredFollowup": "Native answer/citation readability, preview/open/result navigation, retrieval reasons, focus/input ownership, cancellation, note save/reload/revert/close guards and compact reachability."
+      },
+      "agentTranscriptSource": "crates/buckets-app/src/agent_transcript.rs",
+      "streamingVerification": {
+        "date": "2026-10-22",
+        "buildUuid": "6DAD8497-D6AC-358B-940B-6F5D65D12D35",
+        "status": "ship within bounded transcript scope",
+        "verdict": ".impeccable/review/streaming-verdict.md",
+        "native": "Enter/Shift-Enter, Stop/Retry, code copy/paste, compact More/Less and final reference preview; desktop13pt and compact24pt",
+        "limits": "Deterministic offline fixture. Actual IME, VoiceOver, live account switching and provider latency not exercised. Visible history does not restore across launches."
       }
     },
     "typographyMeta": {
@@ -174,7 +188,7 @@
     {
       "name": "Agent cited-file actions",
       "kind": "custom",
-      "description": "Source-derived documentation-panel translation of an Agent citation group. Native AI presentation is NOT REVIEWED; this illustrative preview is not a screenshot, live tool or acceptance proof.",
+      "description": "Source-derived documentation-panel translation of an Agent citation group. Native streaming evidence is recorded separately in streaming-verdict.md; this illustrative HTML preview is not an acceptance proof.",
       "html": "<div class=\"ds-agent-citation\"><strong>Cited files</strong><p>/workspace/project/src/main.rs:12</p><div><button>Preview</button><button>Open in file pane</button></div></div>",
       "css": ".ds-agent-citation {padding:16px;background:#1a1b26;color:#c0caf5;font:12px \"JetBrains Mono\",monospace;line-height:20px}.ds-agent-citation p {color:#9aa5ce;overflow-wrap:anywhere}.ds-agent-citation>div {display:flex;flex-wrap:wrap;gap:8px}.ds-agent-citation button {padding:8px 12px;border:1px solid #343b58;border-radius:4px;background:#24283b;color:#c0caf5;font:inherit}.ds-agent-citation button:focus-visible {outline:1px solid #7aa2f7;outline-offset:2px;}"
     }

@@ -51,7 +51,9 @@ While invoking, the plugin can issue these host requests:
 
 Callbacks use e.g. `{"jsonrpc":"2.0","id":"plugin-1","method":"files.read","params":{"location":"/work/project/a.txt"}}`.
 The host replies with matching string ID and exactly one result/error. Errors
-are JSON-RPC `{code,message}`. Only the four host methods above are dispatched.
+are JSON-RPC `{code,message}`. These are the workspace/file callbacks; plugins
+with the separate `accounts` capability may also use the credential callbacks
+described in [the account protocol](plugin-accounts-protocol.md).
 There is no arbitrary shell or mutation tool. Host grants are explicit roots;
 local references undergo canonical containment, remote references retain exact
 host/bucket/endpoint/revision identity and component-boundary containment. SSH content tools and returned references also receive server-side realpath checks; credential-bearing S3 endpoints are rejected before entering context.
@@ -60,7 +62,32 @@ access to the target. A later read or final reference still requires validation.
 
 Optional progress notifications are
 `{"jsonrpc":"2.0","method":"agent.progress","params":{"request_id":"unique-admission-id","message":"Reading files"}}`.
-These are progress messages, not a token-streaming claim.
+Legacy message-only notifications remain supported. A streaming plugin may add
+an optional `update` containing a complete provisional answer snapshot:
+
+```json
+{"jsonrpc":"2.0","method":"agent.progress","params":{"request_id":"unique-admission-id","message":"Responding","update":{"sequence":7,"text":"## Findings\n\nThe workspace…","phase":"responding","activities":[{"id":"read-1","title":"Read file · /work/project/a.txt","state":"complete"}]}}}
+```
+
+`sequence` strictly increases within an invocation. `text` replaces the full
+provisional Markdown rather than appending a delta, so the UI can coalesce
+intermediate updates without losing text. Phases are `waiting`, `reading`,
+`responding` and `verifying`; activity states are `running`, `complete` and
+`error`. Text is bounded to 64 KiB of UTF-8, activities to 32, activity IDs to
+128 bytes and titles to 512 bytes. Streaming notifications cannot provide
+clickable citations or file results. The final result below remains the only
+source of validated file actions. A failed or cancelled invocation may leave
+provisional text visible with an explicit failed/stopped state.
+
+The first-party plugin observes actual pi-durable message/tool events, decodes
+only the structured answer string, and publishes snapshots at roughly 40 ms
+intervals with immediate phase/tool transitions. It excludes reasoning blocks,
+raw tool output, provider diagnostics and the JSON envelope. Overflow snapshots
+from the harness reconcile the current generation and tool activity.
+
+The host accepts at most 8,192 frames and 256 MiB of cumulative frame data per
+invocation in addition to per-frame limits and the manifest timeout. These
+limits bound sustained streams without requiring the UI to retain their frames.
 
 Final response result:
 

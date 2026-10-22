@@ -15,7 +15,11 @@ await servePlugin({ handlers: {
 
 For duplex services, `ctx.host.call('files.read', {location})` returns the host's
 validated result. `ctx.notify('agent.progress', {request_id, message})` reports
-progress. Only declared host APIs are available; executable plugins are trusted
+legacy status. Add an optional `update` with an increasing `sequence`, full
+Markdown `text`, a `phase`, and bounded `activities` for live transcript snapshots.
+Snapshots are provisional: only the final validated result can supply citations
+and file actions. See [the agent protocol](../../docs/plugin-agent-protocol.md)
+for types, limits, coalescing, and cancellation. Only declared host APIs are available; executable plugins are trusted
 code and are not OS sandboxed. Do not print logs to stdout; use stderr.
 
 `servePlugin` frames messages, validates IDs/versions and bounds frame sizes.
