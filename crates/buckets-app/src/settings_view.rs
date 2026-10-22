@@ -1,13 +1,16 @@
 //! Keyboard-first preferences workspace. The owner persists every event before
 //! applying it; this view retains an independent JSON draft until explicit save.
+use crate::account_state::AccountPresentation;
 use crate::settings::Settings;
 use crate::shortcut_recorder::{Outcome, Recorder, key_identity};
 use crate::{key, theme, ui};
-use buckets_plugin::{PluginManifest, SettingField, SettingKind};
+use buckets_plugin::{
+    AccountAction, AccountRequest, Capability, PluginManifest, SettingField, SettingKind,
+};
 use gpui::{prelude::*, *};
 use gpui_component::input::{Input, InputEvent, InputState};
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 const CATEGORY_NAMES: &[&str] = &[
     "All",
@@ -38,8 +41,17 @@ pub enum Change {
 }
 #[derive(Clone)]
 pub enum SettingsEvent {
+    Account {
+        plugin: String,
+        request: AccountRequest,
+    },
+    CancelAccount(String),
+    AccountUsage(String),
     Change(Change),
-    SaveJson { source: String, base: String },
+    SaveJson {
+        source: String,
+        base: String,
+    },
     Reload,
     Close,
     CancelClose,
@@ -60,6 +72,10 @@ enum Action {
     Sidebar,
     Preview,
     PluginEnabled(String),
+    Account(String, AccountRequest),
+    AccountCancel(String),
+    AccountModel(String, String),
+    AccountUsage(String),
     BookmarkRename(usize),
     BookmarkRemove(usize),
     Field(String, Box<SettingField>, Value),
@@ -103,6 +119,9 @@ pub struct SettingsView {
     settings: Settings,
     plugins: Vec<PluginManifest>,
     plugin_shortcuts: Vec<(String, String, Vec<String>)>,
+    accounts: BTreeMap<String, AccountPresentation>,
+    account_confirmation: Option<(String, String)>,
+    account_announced: BTreeSet<String>,
     path: PathBuf,
     raw: String,
     draft_base: String,
@@ -211,6 +230,9 @@ impl SettingsView {
             settings,
             plugins,
             plugin_shortcuts: vec![],
+            accounts: BTreeMap::new(),
+            account_confirmation: None,
+            account_announced: BTreeSet::new(),
             path,
             raw: raw.clone(),
             draft_base: raw,
@@ -273,6 +295,49 @@ impl SettingsView {
     ) {
         self.settings = settings;
         self.plugins = plugins;
+        cx.notify();
+    }
+    pub fn accounts(
+        &mut self,
+        accounts: BTreeMap<String, AccountPresentation>,
+        cx: &mut Context<Self>,
+    ) {
+        for (plugin, presentation) in &accounts {
+            if let Some(state) = &presentation.state {
+                let identity = format!(
+                    "{plugin}:{}",
+                    state.active_account_id.as_deref().unwrap_or_default()
+                );
+                if state.first_connection && self.account_announced.insert(identity) {
+                    self.account_confirmation = Some((
+                        state.plan_label.clone().unwrap_or_else(|| "Account connected".into()),
+                        state.message.clone().unwrap_or_else(|| "Eligible requests use the connected account’s plan. Manage usage with your provider.".into()),
+                    ));
+                    self.selected = 0;
+                }
+            }
+        }
+        self.accounts = accounts;
+        cx.notify();
+    }
+    pub fn focus_plugin(&mut self, plugin: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dirty || self.account_confirmation.is_some() {
+            return;
+        }
+        let name = self
+            .plugins
+            .iter()
+            .find(|manifest| manifest.id == plugin)
+            .map(|manifest| manifest.name.clone())
+            .unwrap_or_else(|| plugin.to_owned());
+        self.search
+            .update(cx, |search, cx| search.set_value(name, window, cx));
+        self.category = 4;
+        self.json_open = false;
+        self.editing = None;
+        self.selected = 2;
+        self.focus.focus(window);
+        self.scroll.scroll_to_item(0);
         cx.notify();
     }
     pub fn shortcuts(
@@ -512,6 +577,9 @@ impl SettingsView {
                 value: onoff(enabled),
                 action: Action::PluginEnabled(plugin.id.clone()),
             });
+            if plugin.supports(Capability::Accounts) && enabled {
+                self.account_rows(plugin, &mut rows);
+            }
             for field in &plugin.settings_fields {
                 let value = plugin
                     .config
@@ -584,8 +652,142 @@ impl SettingsView {
             })
             .collect()
     }
+    fn account_rows(&self, plugin: &PluginManifest, rows: &mut Vec<Row>) {
+        let presentation = self.accounts.get(&plugin.id);
+        let state = presentation.and_then(|p| p.state.as_ref());
+        let busy = presentation.is_some_and(|p| p.busy);
+        let action = |action, account_id| {
+            Action::Account(plugin.id.clone(), AccountRequest { action, account_id })
+        };
+        let active = state.and_then(|state| {
+            state
+                .accounts
+                .iter()
+                .find(|account| Some(&account.id) == state.active_account_id.as_ref())
+        });
+        rows.push(Row {
+            section: "Plugins".into(),
+            title: format!("{} / Account status", plugin.name),
+            description: if !presentation.is_some_and(|status| status.error || status.busy) && state.is_some_and(|state| !state.using_plan && !state.sign_in_required) && active.is_some_and(|account| account.connected) {
+                "The selected model provider is still active. Change Model provider to use this connection.".into()
+            } else {
+                presentation.map(|p| p.message.clone()).filter(|value| !value.is_empty()).unwrap_or_else(|| "Sign in or refresh the saved account connection.".into())
+            },
+            value: if busy {
+                "Working…".into()
+            } else {
+                active
+                    .map(|account| account.label.clone())
+                    .unwrap_or_else(|| "Not connected".into())
+            },
+            action: action(AccountAction::Status, None),
+        });
+        if busy {
+            rows.push(Row {
+                section: "Plugins".into(),
+                title: format!("{} / Cancel connection", plugin.name),
+                description: "Stop this account operation and keep the current workspace.".into(),
+                value: "Cancel".into(),
+                action: Action::AccountCancel(plugin.id.clone()),
+            });
+            return;
+        }
+        let sign_in_label = state
+            .and_then(|s| s.sign_in_label.clone())
+            .unwrap_or_else(|| "Connect account".into());
+        rows.push(Row { section: "Plugins".into(), title: format!("{} / {}", plugin.name, sign_in_label), description: if active.is_some() { "Connect another account or workspace in your browser.".into() } else { "Use an eligible account plan. API keys and local endpoints remain available in Model provider.".into() }, value: if active.is_some() { "Add account".into() } else { "Sign in".into() }, action: action(AccountAction::SignIn, None) });
+        if let Some(state) = state {
+            for account in &state.accounts {
+                let selected = state.active_account_id.as_deref() == Some(account.id.as_str());
+                rows.push(Row {
+                    section: "Plugins".into(),
+                    title: format!("{} / {}", plugin.name, account.label),
+                    description: if account.plan_enabled {
+                        "Plan usage is enabled for this registration.".into()
+                    } else {
+                        "Reconnect to authorize eligible plan usage.".into()
+                    },
+                    value: if selected && account.connected && account.plan_enabled {
+                        "Active"
+                    } else if account.connected && account.plan_enabled {
+                        "Use account"
+                    } else if account.connected {
+                        "Enable plan usage"
+                    } else {
+                        "Reconnect"
+                    }
+                    .into(),
+                    action: action(
+                        if account.connected && account.plan_enabled {
+                            AccountAction::Select
+                        } else {
+                            AccountAction::SignIn
+                        },
+                        Some(account.id.clone()),
+                    ),
+                });
+            }
+            if let Some(active) = active.filter(|account| account.connected) {
+                rows.push(Row {
+                    section: "Plugins".into(),
+                    title: format!("{} / Sign out", plugin.name),
+                    description: format!("Disconnect {} on this installation.", active.label),
+                    value: "Sign out".into(),
+                    action: action(AccountAction::SignOut, Some(active.id.clone())),
+                });
+            }
+            if let Some(url) = &state.usage_url {
+                rows.push(Row {
+                    section: "Plugins".into(),
+                    title: format!("{} / Manage usage", plugin.name),
+                    description: "Review plan limits and app access with your provider.".into(),
+                    value: "Open in browser".into(),
+                    action: Action::AccountUsage(url.clone()),
+                });
+            }
+            if (state.using_plan || state.sign_in_required)
+                && active.is_some_and(|account| account.connected && account.plan_enabled)
+            {
+                rows.push(Row { section: "Plugins".into(), title: format!("{} / Available models", plugin.name), description: "Refresh the models available to the active account. Select a row below to use it.".into(), value: "Refresh models".into(), action: action(AccountAction::Models, None) });
+                let selected_model = plugin
+                    .config
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                rows.push(Row {
+                    section: "Plugins".into(),
+                    title: format!("{} / Automatic model", plugin.name),
+                    description: "Use the first model available to the active account.".into(),
+                    value: if selected_model.is_empty() {
+                        "Selected"
+                    } else {
+                        "Use automatic"
+                    }
+                    .into(),
+                    action: Action::AccountModel(plugin.id.clone(), String::new()),
+                });
+                for (index, model) in state.models.iter().enumerate() {
+                    rows.push(Row {
+                        section: "Plugins".into(),
+                        title: format!("{} / {}", plugin.name, model.name),
+                        description: model.id.clone(),
+                        value: if model.id == selected_model {
+                            "Selected"
+                        } else if selected_model.is_empty() && index == 0 {
+                            "Automatic"
+                        } else {
+                            "Use model"
+                        }
+                        .into(),
+                        action: Action::AccountModel(plugin.id.clone(), model.id.clone()),
+                    });
+                }
+            }
+        }
+    }
     fn row_disabled(&self, row: &Row) -> bool {
-        matches!(row.action, Action::FontUp) && self.settings.font_size >= 24.
+        matches!(&row.action, Action::Account(plugin, _) if self.accounts.get(plugin).is_some_and(|status| status.busy))
+            || matches!(row.action, Action::FontUp) && self.settings.font_size >= 24.
             || matches!(row.action, Action::FontDown) && self.settings.font_size <= 9.
     }
     fn cycle_category(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
@@ -602,6 +804,12 @@ impl SettingsView {
             self.editing = None;
         }
         self.selected = index;
+        if self.account_confirmation.take().is_some() {
+            self.focus.focus(window);
+            self.selected = 0;
+            cx.notify();
+            return;
+        }
         if self.close_pending || self.reload_pending {
             self.confirm(index, window, cx);
             return;
@@ -633,12 +841,23 @@ impl SettingsView {
             return;
         };
         if self.row_disabled(row) {
-            self.message = "Text size is at its limit · Reset restores 13pt".into();
+            self.message = if matches!(row.action, Action::Account(..)) {
+                "An account operation is in progress. Choose Cancel connection to stop it."
+            } else {
+                "Text size is at its limit · Reset restores 13pt"
+            }
+            .into();
             self.error = false;
             cx.notify();
             return;
         }
         match row.action.clone() {
+            Action::Account(plugin, request) => cx.emit(SettingsEvent::Account { plugin, request }),
+            Action::AccountCancel(plugin) => cx.emit(SettingsEvent::CancelAccount(plugin)),
+            Action::AccountUsage(url) => cx.emit(SettingsEvent::AccountUsage(url)),
+            Action::AccountModel(plugin, model) => cx.emit(SettingsEvent::Change(
+                Change::PluginField(plugin, "model".into(), Some(Value::String(model))),
+            )),
             Action::AppearanceFont(terminal) => {
                 let value = if terminal {
                     self.settings.appearance.terminal_font_family.clone()
@@ -1137,7 +1356,9 @@ impl SettingsView {
                 return;
             }
         }
-        let count = if self.close_pending {
+        let count = if self.account_confirmation.is_some() {
+            1
+        } else if self.close_pending {
             3
         } else if self.reload_pending {
             2
@@ -1163,6 +1384,16 @@ impl SettingsView {
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let k = event.keystroke.key.as_str();
         let m = event.keystroke.modifiers;
+        if self.account_confirmation.is_some() {
+            if matches!(k, "enter" | "space" | "escape") && !event.is_held {
+                self.account_confirmation = None;
+                self.selected = 0;
+                self.focus.focus(window);
+                cx.notify();
+            }
+            cx.stop_propagation();
+            return;
+        }
         // Settings uses Tab for control navigation, including in the multiline
         // JSON editor. Capture before the input's indentation handling.
         if k == "tab" && !m.platform && !m.control && !m.alt {
@@ -1272,7 +1503,33 @@ impl Render for SettingsView {
         );
         let _ = &self.subscriptions;
         let confirming = self.close_pending || self.reload_pending;
-        let content = if confirming {
+        let content = if let Some((title, message)) = &self.account_confirmation {
+            div()
+                .id("account-confirm-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .p_6()
+                .child(
+                    div()
+                        .text_size(ui(18.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title.clone()),
+                )
+                .child(
+                    div()
+                        .mt_3()
+                        .max_w(ui(650.))
+                        .whitespace_normal()
+                        .child(message.clone()),
+                )
+                .child(
+                    div()
+                        .mt_5()
+                        .child(self.button("account-confirm", "Got it", 0, cx)),
+                )
+                .into_any_element()
+        } else if confirming {
             let mut actions = div().flex().flex_wrap().gap_3();
             if self.close_pending {
                 actions = actions

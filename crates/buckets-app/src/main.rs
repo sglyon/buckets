@@ -1,3 +1,5 @@
+mod account_session;
+mod account_state;
 mod agent_context;
 mod agent_session;
 mod agent_view;
@@ -589,6 +591,7 @@ struct Browser {
     exit_after_settings: bool,
     settings_warning: Option<String>,
     plugin_generation: u64,
+    account_sessions: account_state::AccountSessions,
     menu_state: Option<menus::MenuState>,
     decoration_epoch: u64,
     preview: String,
@@ -755,6 +758,7 @@ impl Browser {
             settings_open: false,
             exit_after_settings: false,
             plugin_generation: 0,
+            account_sessions: Default::default(),
             menu_state: None,
             decoration_epoch: 0,
             font_size,
@@ -942,6 +946,8 @@ impl Browser {
             self.settings_subscription = Some(subscription);
         }
         self.settings_open = true;
+        self.sync_account_views(cx);
+        self.refresh_account_states(cx);
         if let Some(view) = &self.settings_view {
             view.update(cx, |view, cx| view.focus(window, cx));
         }
@@ -974,6 +980,8 @@ impl Browser {
         let agent_settings = serde_json::to_string(&settings.plugins).unwrap_or_default();
         if self.agent_settings_fingerprint != agent_settings {
             self.agent_settings_fingerprint = agent_settings;
+            self.account_sessions.clear();
+            self.sync_account_views(cx);
             self.invalidate_agents(
                 "Plugin settings changed. Run a new request to use them.",
                 cx,
@@ -1090,6 +1098,18 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         match event {
+            settings_view::SettingsEvent::Account { plugin, request } => {
+                self.run_account(plugin.clone(), request.clone(), cx);
+            }
+            settings_view::SettingsEvent::CancelAccount(plugin) => {
+                self.account_sessions.cancel(plugin);
+                self.sync_account_views(cx);
+            }
+            settings_view::SettingsEvent::AccountUsage(url) => {
+                if let Ok(url) = account_state::external_url(url) {
+                    cx.open_url(&url);
+                }
+            }
             settings_view::SettingsEvent::Change(change) => {
                 self.update_preference(change.clone(), window, cx)
             }
@@ -1105,6 +1125,8 @@ impl Browser {
                     eprintln!("settings close: quit={}", self.exit_after_settings);
                 }
                 self.settings_open = false;
+                self.account_sessions.cancel_all();
+                self.sync_account_views(cx);
                 if std::mem::take(&mut self.exit_after_settings) {
                     self.save();
                     self.request_quit(window, cx);
@@ -2698,6 +2720,8 @@ impl Browser {
         cx.stop_propagation();
     }
     fn discover_plugins(&mut self, cx: &mut Context<Self>) {
+        self.account_sessions.clear();
+        self.sync_account_views(cx);
         self.invalidate_agents(
             "Plugin catalog is reloading. Run a new request after it completes.",
             cx,
@@ -2751,6 +2775,7 @@ impl Browser {
                             view.update(cx, |view, cx| view.catalog(settings, plugins, cx));
                         }
                         this.plugin_commands = commands;
+                        this.refresh_account_states(cx);
                         this.rebuild_keymap(cx);
                         if let Some(view) = &this.settings_view {
                             let shortcuts = this.shortcut_catalog();

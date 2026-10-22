@@ -1,6 +1,6 @@
 //! Generic agent answer pane. Provider/model/network work stays in plugins.
 use crate::{theme, ui};
-use buckets_plugin::{AgentMode, AgentResult, AgentService};
+use buckets_plugin::{AccountState, AgentMode, AgentResult, AgentService};
 use gpui::{prelude::*, *};
 use gpui_component::input::{Input, InputEvent, InputState};
 use std::sync::{
@@ -25,6 +25,8 @@ pub enum AgentViewEvent {
         line: Option<u64>,
     },
     Results,
+    Settings,
+    ManageUsage(String),
     Close,
     CancelClose,
 }
@@ -35,6 +37,8 @@ enum Control {
     Copy,
     Results,
     Memory,
+    Settings,
+    ManageUsage,
     MemoryEditor,
     MemorySave,
     MemoryReload,
@@ -49,6 +53,7 @@ actions!(agent_pane, [NextControl, PreviousControl]);
 pub struct AgentView {
     plugin: String,
     title: String,
+    account: Option<AccountState>,
     mode: AgentMode,
     focus: FocusHandle,
     composer: Entity<InputState>,
@@ -144,6 +149,7 @@ impl AgentView {
         Self {
             plugin,
             title,
+            account: None,
             mode,
             focus: cx.focus_handle(),
             composer,
@@ -169,6 +175,10 @@ impl AgentView {
             pending_memory_update: None,
             exit_requested: false,
         }
+    }
+    pub fn account_state(&mut self, state: Option<AccountState>, cx: &mut Context<Self>) {
+        self.account = state;
+        cx.notify();
     }
     pub fn plugin(&self) -> &str {
         &self.plugin
@@ -410,7 +420,15 @@ impl AgentView {
             Control::Copy,
             Control::Results,
             Control::Memory,
+            Control::Settings,
         ];
+        if self
+            .account
+            .as_ref()
+            .is_some_and(|account| account.using_plan && account.usage_url.is_some())
+        {
+            controls.push(Control::ManageUsage);
+        }
         if self.memory_open {
             controls.extend([
                 Control::MemoryEditor,
@@ -459,6 +477,17 @@ impl AgentView {
                 }
             }
             Control::Results => cx.emit(AgentViewEvent::Results),
+            Control::Settings => cx.emit(AgentViewEvent::Settings),
+            Control::ManageUsage => {
+                if let Some(url) = self
+                    .account
+                    .as_ref()
+                    .filter(|account| account.using_plan)
+                    .and_then(|account| account.usage_url.clone())
+                {
+                    cx.emit(AgentViewEvent::ManageUsage(url));
+                }
+            }
             Control::Memory => {
                 self.memory_open = !self.memory_open;
                 if self.memory_open && self.memory_saved.is_none() {
@@ -825,6 +854,14 @@ impl Render for AgentView {
                         .border_t_1()
                         .border_color(rgb(colors.border))
                         .bg(rgb(colors.chrome))
+                        .when_some(self.account.as_ref().filter(|account| account.using_plan), |el, account| {
+                            el.child(div().mb_2().flex().flex_wrap().items_center().gap_2()
+                                .child(div().text_size(ui(11.)).text_color(rgb(colors.muted)).child(account.plan_label.clone().unwrap_or_else(|| "Using account plan".into())))
+                                .when(account.usage_url.is_some(), |el| el.child(self.button("Manage usage", Control::ManageUsage, cx))))
+                        })
+                        .when(self.account.as_ref().is_some_and(|account| account.sign_in_required), |el| {
+                            el.child(div().mb_2().text_size(ui(11.)).text_color(rgb(colors.muted)).whitespace_normal().child("Sign in from AI settings, or choose an API key or local provider."))
+                        })
                         .child(Input::new(&self.composer))
                         .child(
                             div()
@@ -839,7 +876,8 @@ impl Render for AgentView {
                                 ))
                                 .child(self.button("Copy", Control::Copy, cx))
                                 .child(self.button("Results", Control::Results, cx))
-                                .child(self.button("Memory", Control::Memory, cx)),
+                                .child(self.button("Memory", Control::Memory, cx))
+                                .child(self.button("AI settings", Control::Settings, cx)),
                         ),
                 )
             })

@@ -9,8 +9,8 @@ use crate::{
 use anyhow::{Result, anyhow, ensure};
 use buckets_core::AgentBroker;
 use buckets_plugin::{
-    AgentEntry, AgentEvent, AgentLaunchRequest, AgentMode, AgentPaneContext, AgentRequest,
-    AgentResult, WorkspaceContext,
+    AccountAction, AccountRequest, AgentEntry, AgentEvent, AgentLaunchRequest, AgentMode,
+    AgentPaneContext, AgentRequest, AgentResult, Capability, CredentialBroker, WorkspaceContext,
 };
 use gpui::{prelude::*, *};
 use std::sync::{atomic::Ordering, mpsc};
@@ -113,7 +113,7 @@ impl Browser {
             self.active=index;
             if let PaneContent::Agent(view)=&self.panes[index].content{view.update(cx,|view,cx|{if view.busy() && view.mode()!=intent.mode{view.invalidate("Mode changed. Previous request cancelled.",cx);} view.configure(title,intent.mode,intent.prompt.clone(),window,cx)});}
             if matches!(intent.mode,AgentMode::Memory|AgentMode::Index){let id=self.panes[index].id;self.run_agent(id,intent.mode,intent.prompt,None,window,cx);}
-            cx.notify();return;
+            self.sync_account_views(cx);self.refresh_account_states(cx);cx.notify();return;
         }
         if self.panes.len() >= 6 {
             self.message(
@@ -150,6 +150,8 @@ impl Browser {
         pane.terminal_observation = Some(observation);
         self.panes.insert(origin_index + 1, pane);
         self.active = origin_index + 1;
+        self.sync_account_views(cx);
+        self.refresh_account_states(cx);
         self.quicklook = false;
         self.help = false;
         self.prompt = None;
@@ -198,6 +200,17 @@ impl Browser {
                 self.open_agent_location(pane_id, location, *line, window, cx)
             }
             AgentViewEvent::Results => self.open_agent_results(pane_id, window, cx),
+            AgentViewEvent::Settings => {
+                if let PaneContent::Agent(view) = &self.panes[index].content {
+                    let plugin = view.read(cx).plugin().to_owned();
+                    self.open_account_settings(&plugin, window, cx);
+                }
+            }
+            AgentViewEvent::ManageUsage(url) => {
+                if let Ok(url) = crate::account_state::external_url(url) {
+                    cx.open_url(&url);
+                }
+            }
             AgentViewEvent::CancelClose => {
                 self.exit_after_agent = None;
             }
@@ -246,6 +259,33 @@ impl Browser {
             return;
         }
         let plugin = view.read(cx).plugin().to_owned();
+        if matches!(mode, AgentMode::Ask) && self.account_sessions.busy(&plugin) {
+            view.update(cx, |view, cx| {
+                view.invalidate(
+                    "An account operation is in progress. Finish or cancel it in AI settings.",
+                    cx,
+                )
+            });
+            self.open_account_settings(&plugin, window, cx);
+            return;
+        }
+        if matches!(mode, AgentMode::Ask)
+            && self
+                .account_sessions
+                .public
+                .get(&plugin)
+                .and_then(|status| status.state.as_ref())
+                .is_some_and(|state| state.sign_in_required)
+        {
+            view.update(cx, |view, cx| {
+                view.invalidate(
+                    "Sign in from AI settings, or choose an API key or local provider.",
+                    cx,
+                )
+            });
+            self.open_account_settings(&plugin, window, cx);
+            return;
+        }
         let Some(manifest) = self
             .plugins
             .plugins()
@@ -272,6 +312,7 @@ impl Browser {
             &plugin,
             &self.workspace_id,
         );
+        let account_root = session_path().parent().unwrap().join("accounts");
         let request_id = agent_context::admission_id(
             &self.workspace_id,
             pane_id,
@@ -299,9 +340,15 @@ impl Browser {
                         *slot = Some(registry.start_agent(&plugin)?);
                     }
                     let service = slot.as_mut().ok_or_else(|| anyhow!("Agent service did not start"))?;
+                    let mut credentials = manifest.supports(Capability::Accounts).then(|| CredentialBroker::new(&account_root, &plugin)).transpose()?;
                     let result = service.invoke(
                         request,
-                        |method, params| agent_context::dispatch_tool(mode,&broker,search_broker.as_ref(),method,&params),
+                        |method, params| {
+                            if method.starts_with("credentials.") {
+                                return credentials.as_mut().ok_or_else(|| anyhow!("This plugin has no account capability"))?.dispatch(method, params);
+                            }
+                            agent_context::dispatch_tool(mode,&broker,search_broker.as_ref(),method,&params)
+                        },
                         |event| {
                             if event.request_id == request_id {
                                 let _ = sender.try_send(JobEvent::Progress(event));
@@ -352,7 +399,14 @@ impl Browser {
                                     } else if !matches!(mode, AgentMode::Memory) && this.snapshot_agent_context().1 != fingerprint {
                                         result = Err("File pane context changed while this request was running. Run it again for the current panes.".into());
                                     }
+                                    let refresh_account = matches!(mode, AgentMode::Ask) && result.is_err();
                                     view.update(cx, |view, cx| view.complete(generation, mode, result, window, cx));
+                                    if refresh_account {
+                                        let plugin = view.read(cx).plugin().to_owned();
+                                        if this.plugins.plugins().iter().any(|manifest| manifest.id == plugin && manifest.supports(Capability::Accounts)) {
+                                            this.run_account(plugin, AccountRequest { action: AccountAction::Status, account_id: None }, cx);
+                                        }
+                                    }
                                 }
                             }
                         }
