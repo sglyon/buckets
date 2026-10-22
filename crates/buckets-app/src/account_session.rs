@@ -23,7 +23,7 @@ impl Browser {
             if let PaneContent::Agent(view) = &pane.content
                 && view.read(cx).plugin() == plugin
             {
-                view.update(cx, |view, cx| view.invalidate(message, cx));
+                view.update(cx, |view, cx| view.clear_private(message, cx));
             }
         }
     }

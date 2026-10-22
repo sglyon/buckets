@@ -163,10 +163,10 @@ impl Browser {
         }
         cx.notify();
     }
-    pub(super) fn invalidate_agents(&mut self, message: &str, cx: &mut Context<Self>) {
+    pub(super) fn clear_private_agents(&mut self, message: &str, cx: &mut Context<Self>) {
         for pane in &self.panes {
             if let PaneContent::Agent(view) = &pane.content {
-                view.update(cx, |view, cx| view.invalidate(message, cx));
+                view.update(cx, |view, cx| view.clear_private(message, cx));
             }
         }
     }
@@ -303,8 +303,9 @@ impl Browser {
         };
         self.workspace_revision = self.workspace_revision.saturating_add(1);
         let (context, fingerprint) = self.snapshot_agent_context();
-        let (generation, cancel, service) =
-            view.update(cx, |view, cx| view.begin(memory_update.clone(), cx));
+        let (generation, cancel, service) = view.update(cx, |view, cx| {
+            view.begin(mode, &prompt, memory_update.clone(), window, cx)
+        });
         let epoch = self.plugin_generation;
         let registry = self.plugins.clone();
         let storage = agent_context::storage_directory(
@@ -391,7 +392,7 @@ impl Browser {
                         if !view.read(cx).accepts(generation) { missing = true; return; }
                         for event in events {
                             match event {
-                                JobEvent::Progress(event) => view.update(cx, |view, cx| view.progress(generation, event.message, cx)),
+                                JobEvent::Progress(event) => view.update(cx, |view, cx| view.progress(generation, event, cx)),
                                 JobEvent::Finished(mut result) => {
                                     finished = true;
                                     if this.plugin_generation != epoch || !this.plugins.is_enabled(view.read(cx).plugin()) {

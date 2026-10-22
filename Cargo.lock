@@ -723,6 +723,7 @@ dependencies = [
  "buckets-terminal",
  "gpui",
  "gpui-component",
+ "markdown",
  "notify",
  "objc2",
  "objc2-app-kit",

@@ -1,11 +1,21 @@
 //! Generic agent answer pane. Provider/model/network work stays in plugins.
-use crate::{theme, ui};
-use buckets_plugin::{AccountState, AgentMode, AgentResult, AgentService};
+use crate::{
+    agent_transcript::{FollowTail, MarkdownBlock, Transcript, TurnState, markdown_blocks},
+    theme, ui,
+};
+use buckets_plugin::{
+    AccountState, AgentActivityState, AgentEvent, AgentMode, AgentPhase, AgentResult, AgentService,
+};
 use gpui::{prelude::*, *};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::text::{TextView, TextViewStyle};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
+};
+use std::{
+    collections::BTreeMap,
+    hash::{Hash, Hasher},
 };
 
 pub type ServiceCache = Arc<Mutex<Option<AgentService>>>;
@@ -30,11 +40,15 @@ pub enum AgentViewEvent {
     Close,
     CancelClose,
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Control {
     Composer,
     Run,
-    Copy,
+    CopyTurn(u64),
+    CopyCode(u64, usize),
+    Retry(u64),
+    Activity(u64),
+    Latest,
     Results,
     Memory,
     Settings,
@@ -43,8 +57,8 @@ enum Control {
     MemorySave,
     MemoryReload,
     MemoryRevert,
-    Preview(usize),
-    Open(usize),
+    Preview(u64, usize),
+    Open(u64, usize),
     SaveClose,
     DiscardClose,
     KeepEditing,
@@ -61,7 +75,11 @@ pub struct AgentView {
     _subscriptions: Vec<Subscription>,
     scroll: ScrollHandle,
     result: Option<AgentResult>,
-    progress: Vec<String>,
+    transcript: Transcript,
+    follow: FollowTail,
+    rendered: BTreeMap<u64, (String, Vec<MarkdownBlock>)>,
+    selection_hold: bool,
+    last_sent: Option<String>,
     preview: Option<(String, String)>,
     preview_generation: u64,
     message: String,
@@ -70,7 +88,7 @@ pub struct AgentView {
     generation: u64,
     cancel: Option<Arc<AtomicBool>>,
     service: ServiceCache,
-    selected: usize,
+    selected: Control,
     memory_open: bool,
     memory_saved: Option<String>,
     memory_dirty: bool,
@@ -118,7 +136,9 @@ impl AgentView {
             KeyBinding::new("shift-tab", PreviousControl, Some("BucketsAgent")),
         ]);
         let composer = cx.new(|cx| {
-            let mut input = InputState::new(window, cx).placeholder("Ask about the file panes…");
+            let mut input = InputState::new(window, cx)
+                .auto_grow(2, 6)
+                .placeholder("Ask about these files…");
             input.set_value(prompt, window, cx);
             input
         });
@@ -130,9 +150,8 @@ impl AgentView {
         });
         let subscriptions = vec![
             cx.subscribe_in(&composer, window, |this, _, event, _, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    this.submit(cx);
-                } else if matches!(event, InputEvent::Focus) {
+                if matches!(event, InputEvent::Focus) {
+                    this.selection_hold = false;
                     this.select(Control::Composer, cx);
                 }
             }),
@@ -157,16 +176,20 @@ impl AgentView {
             _subscriptions: subscriptions,
             scroll: ScrollHandle::new(),
             result: None,
-            progress: vec![],
+            transcript: Transcript::default(),
+            follow: FollowTail::new(),
+            rendered: BTreeMap::new(),
+            selection_hold: false,
+            last_sent: None,
             preview: None,
             preview_generation: 0,
-            message: "Choose file panes, then ask a question. Host tools are read-only.".into(),
+            message: String::new(),
             error: false,
             busy: false,
             generation: 0,
             cancel: None,
             service: Arc::new(Mutex::new(None)),
-            selected: 0,
+            selected: Control::Composer,
             memory_open: matches!(mode, AgentMode::Memory),
             memory_saved: None,
             memory_dirty: false,
@@ -177,6 +200,19 @@ impl AgentView {
         }
     }
     pub fn account_state(&mut self, state: Option<AccountState>, cx: &mut Context<Self>) {
+        let previous = self
+            .account
+            .as_ref()
+            .and_then(|account| account.active_account_id.as_ref());
+        let next = state
+            .as_ref()
+            .and_then(|account| account.active_account_id.as_ref());
+        if previous.is_some() && previous != next {
+            self.transcript.clear();
+            self.rendered.clear();
+            self.result = None;
+            self.preview = None;
+        }
         self.account = state;
         cx.notify();
     }
@@ -199,7 +235,7 @@ impl AgentView {
         self.memory_dirty
     }
     pub fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.selected = 0;
+        self.selected = Control::Composer;
         if self.close_prompt {
             self.focus.focus(window);
         } else if self.memory_open {
@@ -229,7 +265,10 @@ impl AgentView {
     }
     pub fn begin(
         &mut self,
+        mode: AgentMode,
+        prompt: &str,
         memory_update: Option<String>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> (u64, Arc<AtomicBool>, ServiceCache) {
         self.generation += 1;
@@ -239,7 +278,22 @@ impl AgentView {
         self.busy = true;
         self.error = false;
         self.message = "Working… · Escape cancels".into();
-        self.progress.clear();
+        if matches!(mode, AgentMode::Ask | AgentMode::Search | AgentMode::Index) {
+            self.transcript.begin(if prompt.is_empty() {
+                "Reindex semantic search".into()
+            } else {
+                prompt.to_owned()
+            });
+            self.last_sent = Some(prompt.to_owned());
+            self.result = None;
+            if self.composer.read(cx).value().as_str() == prompt {
+                self.composer
+                    .update(cx, |input, cx| input.set_value("", window, cx));
+            }
+            self.follow.latest();
+            self.selection_hold = false;
+            self.scroll.scroll_to_bottom();
+        }
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancel = Some(cancel.clone());
         cx.notify();
@@ -248,14 +302,20 @@ impl AgentView {
     pub fn accepts(&self, generation: u64) -> bool {
         self.generation == generation
     }
-    pub fn progress(&mut self, generation: u64, message: String, cx: &mut Context<Self>) {
+    pub fn progress(&mut self, generation: u64, event: AgentEvent, cx: &mut Context<Self>) {
         if !self.accepts(generation) || !self.busy {
             return;
         }
-        if self.progress.len() == 128 {
-            self.progress.remove(0);
+        if let Some(update) = event.update {
+            if self.transcript.update(update) {
+                self.follow.updated();
+                if self.follow.following && !self.selection_hold {
+                    self.scroll.scroll_to_bottom();
+                }
+            }
+        } else if !event.message.is_empty() {
+            self.message = event.message.chars().take(512).collect();
         }
-        self.progress.push(message.chars().take(2048).collect());
         cx.notify();
     }
     pub fn complete(
@@ -274,12 +334,17 @@ impl AgentView {
             .take()
             .is_some_and(|cancel| cancel.load(Ordering::SeqCst));
         self.busy = false;
+        if !matches!(mode, AgentMode::Memory) {
+            self.transcript.finish(result.clone(), cancelled);
+            self.follow.updated();
+        }
         if cancelled {
             self.pending_memory_update = None;
             self.close_after_memory = false;
             (self.message, self.error) = crate::agent_context::cancellation_message(
                 result.as_ref().err().map(String::as_str),
             );
+            self.restore_sent_if_empty(window, cx);
             cx.notify();
             return;
         }
@@ -308,7 +373,7 @@ impl AgentView {
                 self.message = if matches!(mode, AgentMode::Memory) {
                     "Workspace memory loaded or saved."
                 } else {
-                    "Complete · Use Tab to reach citations, results and memory."
+                    ""
                 }
                 .into();
                 self.error = false;
@@ -327,6 +392,7 @@ impl AgentView {
                 self.pending_memory_update = None;
                 self.error = true;
                 self.message = error;
+                self.restore_sent_if_empty(window, cx);
                 self.close_after_memory = false;
             }
         }
@@ -355,7 +421,8 @@ impl AgentView {
         if let Some(cancel) = &self.cancel {
             cancel.store(true, Ordering::SeqCst);
         }
-        self.message = "Cancelling…".into();
+        self.transcript.stop();
+        self.message = "Stopping…".into();
         cx.notify();
     }
     pub fn invalidate(&mut self, message: &str, cx: &mut Context<Self>) {
@@ -363,6 +430,7 @@ impl AgentView {
             cancel.store(true, Ordering::SeqCst);
         }
         self.generation += 1;
+        self.transcript.stop();
         self.busy = false;
         self.error = true;
         self.message = message.into();
@@ -381,7 +449,7 @@ impl AgentView {
         self.exit_requested = exit;
         if self.memory_dirty {
             self.close_prompt = true;
-            self.selected = 0;
+            self.selected = Control::Composer;
             self.focus.focus(window);
             cx.notify();
         } else {
@@ -390,7 +458,6 @@ impl AgentView {
     }
     fn submit(&mut self, cx: &mut Context<Self>) {
         if self.busy {
-            self.cancel(cx);
             return;
         }
         let prompt = self.composer.read(cx).value().to_string();
@@ -400,11 +467,34 @@ impl AgentView {
             cx.notify();
             return;
         }
+        let mode = if matches!(self.mode, AgentMode::Memory | AgentMode::Index) {
+            AgentMode::Ask
+        } else {
+            self.mode
+        };
+        self.mode = mode;
         cx.emit(AgentViewEvent::Run {
-            mode: self.mode,
+            mode,
             prompt,
             memory_update: None,
         });
+    }
+    fn restore_sent_if_empty(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.composer.read(cx).value().is_empty()
+            && let Some(prompt) = self.last_sent.clone()
+        {
+            self.composer
+                .update(cx, |input, cx| input.set_value(prompt, window, cx));
+        }
+    }
+    pub fn clear_private(&mut self, message: &str, cx: &mut Context<Self>) {
+        self.invalidate(message, cx);
+        self.transcript.clear();
+        self.rendered.clear();
+        self.result = None;
+        self.preview = None;
+        self.selected = Control::Composer;
+        self.last_sent = None;
     }
     fn controls(&self) -> Vec<Control> {
         if self.close_prompt {
@@ -414,14 +504,44 @@ impl AgentView {
                 Control::KeepEditing,
             ];
         }
-        let mut controls = vec![
-            Control::Composer,
-            Control::Run,
-            Control::Copy,
-            Control::Results,
-            Control::Memory,
-            Control::Settings,
-        ];
+        let mut controls = vec![Control::Composer, Control::Run];
+        for turn in &self.transcript.turns {
+            if !turn.activities.is_empty() {
+                controls.push(Control::Activity(turn.id));
+            }
+            if !turn.text.is_empty() {
+                controls.push(Control::CopyTurn(turn.id));
+                if let Some((_, blocks)) = self.rendered.get(&turn.id) {
+                    for (index, block) in blocks.iter().enumerate() {
+                        if block.code.is_some() {
+                            controls.push(Control::CopyCode(turn.id, index));
+                        }
+                    }
+                }
+            }
+            if !self.busy && matches!(turn.state, TurnState::Stopped | TurnState::Failed) {
+                controls.push(Control::Retry(turn.id));
+            }
+            if let Some(result) = &turn.result {
+                for index in 0..result.citations.len() {
+                    controls.extend([
+                        Control::Preview(turn.id, index),
+                        Control::Open(turn.id, index),
+                    ]);
+                }
+            }
+        }
+        if self.follow.unread || self.selection_hold {
+            controls.push(Control::Latest);
+        }
+        if self
+            .result
+            .as_ref()
+            .is_some_and(|result| !result.results.is_empty())
+        {
+            controls.push(Control::Results);
+        }
+        controls.extend([Control::Memory, Control::Settings]);
         if self
             .account
             .as_ref()
@@ -437,28 +557,24 @@ impl AgentView {
                 Control::MemoryRevert,
             ]);
         }
-        if let Some(result) = &self.result {
-            for i in 0..result.citations.len() {
-                controls.extend([Control::Preview(i), Control::Open(i)]);
-            }
-        }
         controls
     }
     fn select(&mut self, control: Control, cx: &mut Context<Self>) {
-        if let Some(index) = self
-            .controls()
-            .iter()
-            .position(|candidate| *candidate == control)
-        {
-            self.selected = index;
+        if self.controls().contains(&control) {
+            self.selected = control;
         }
         cx.notify();
     }
     fn move_focus(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
         let controls = self.controls();
+        let selected = controls
+            .iter()
+            .position(|control| *control == self.selected)
+            .unwrap_or(0);
         self.selected =
-            (self.selected as isize + delta).rem_euclid(controls.len() as isize) as usize;
-        match controls[self.selected] {
+            controls[(selected as isize + delta).rem_euclid(controls.len() as isize) as usize];
+        self.selection_hold = false;
+        match self.selected {
             Control::Composer => self.composer.focus_handle(cx).focus(window),
             Control::MemoryEditor => self.memory.focus_handle(cx).focus(window),
             _ => self.focus.focus(window),
@@ -467,14 +583,48 @@ impl AgentView {
     }
     fn activate(&mut self, control: Control, window: &mut Window, cx: &mut Context<Self>) {
         self.select(control, cx);
+        self.selection_hold = false;
         match control {
             Control::Composer => self.composer.focus_handle(cx).focus(window),
-            Control::Run => self.submit(cx),
-            Control::Copy => {
-                if let Some(result) = &self.result {
-                    cx.write_to_clipboard(ClipboardItem::new_string(result.answer.clone()));
-                    self.message = "Answer copied.".into();
+            Control::Run => {
+                if self.busy {
+                    self.cancel(cx);
+                } else {
+                    self.submit(cx);
                 }
+            }
+            Control::CopyTurn(id) => {
+                if let Some((text, _)) = self.rendered.get(&id) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                    self.message = "Response copied.".into();
+                }
+            }
+            Control::CopyCode(id, index) => {
+                if let Some(code) = self
+                    .rendered
+                    .get(&id)
+                    .and_then(|(_, blocks)| blocks.get(index))
+                    .and_then(|block| block.code.clone())
+                {
+                    cx.write_to_clipboard(ClipboardItem::new_string(code));
+                    self.message = "Code copied.".into();
+                }
+            }
+            Control::Retry(id) => {
+                if !self.busy
+                    && let Some(turn) = self.transcript.get(id)
+                {
+                    cx.emit(AgentViewEvent::Run {
+                        mode: AgentMode::Ask,
+                        prompt: turn.prompt.clone(),
+                        memory_update: None,
+                    });
+                }
+            }
+            Control::Activity(id) => self.transcript.toggle_activity(id),
+            Control::Latest => {
+                self.follow.latest();
+                self.scroll.scroll_to_bottom();
             }
             Control::Results => cx.emit(AgentViewEvent::Results),
             Control::Settings => cx.emit(AgentViewEvent::Settings),
@@ -533,13 +683,14 @@ impl AgentView {
                     });
                 }
             }
-            Control::Preview(i) | Control::Open(i) => {
+            Control::Preview(id, i) | Control::Open(id, i) => {
                 if let Some(citation) = self
-                    .result
-                    .as_ref()
+                    .transcript
+                    .get(id)
+                    .and_then(|turn| turn.result.as_ref())
                     .and_then(|result| result.citations.get(i))
                 {
-                    let event = if matches!(control, Control::Preview(_)) {
+                    let event = if matches!(control, Control::Preview(_, _)) {
                         AgentViewEvent::Preview {
                             location: citation.location.clone(),
                             line: citation.line,
@@ -570,18 +721,49 @@ impl AgentView {
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let modifiers = event.keystroke.modifiers;
+        if key == "enter"
+            && self.composer.focus_handle(cx).is_focused(window)
+            && !modifiers.platform
+            && !modifiers.control
+            && !modifiers.alt
+        {
+            let composing = self.composer.update(cx, |input, cx| {
+                input.marked_text_range(window, cx).is_some()
+            });
+            if composing {
+                return;
+            }
+            if modifiers.shift {
+                self.composer
+                    .update(cx, |input, cx| input.replace("\n", window, cx));
+            } else if !event.is_held {
+                self.submit(cx);
+            }
+            cx.stop_propagation();
+            return;
+        }
         if key == "escape" && !modifiers.platform && !modifiers.control && !modifiers.alt {
             if self.close_prompt {
                 self.activate(Control::KeepEditing, window, cx);
+            } else if self.preview.is_some() {
+                self.preview = None;
+                cx.notify();
             } else if self.busy {
                 self.cancel(cx);
+            } else if self.memory_open {
+                self.memory_open = false;
+                self.composer.focus_handle(cx).focus(window);
+                cx.notify();
             } else {
+                self.selection_hold = false;
                 self.focus.focus(window);
             }
             cx.stop_propagation();
             return;
         }
-        if self.focus.is_focused(window)
+        if (self.focus.is_focused(window)
+            || (!self.composer.focus_handle(cx).is_focused(window)
+                && !self.memory.focus_handle(cx).is_focused(window)))
             && !modifiers.platform
             && !modifiers.control
             && !modifiers.alt
@@ -589,17 +771,35 @@ impl AgentView {
             match key {
                 "enter" | "space" => {
                     let controls = self.controls();
-                    self.activate(controls[self.selected.min(controls.len() - 1)], window, cx);
+                    let control = if controls.contains(&self.selected) {
+                        self.selected
+                    } else {
+                        Control::Composer
+                    };
+                    self.activate(control, window, cx);
                 }
-                "up" => {
+                "up" | "pageup" | "down" | "pagedown" => {
                     let mut offset = self.scroll.offset();
-                    offset.y += px(60.);
+                    let amount = if key.starts_with("page") {
+                        self.scroll.bounds().size.height * 0.8
+                    } else {
+                        ui(48.).to_pixels(window.rem_size())
+                    };
+                    offset.y += if matches!(key, "up" | "pageup") {
+                        amount
+                    } else {
+                        -amount
+                    };
                     self.scroll.set_offset(offset);
+                    self.follow
+                        .observe_user_scroll(f32::from(self.scroll.max_offset().height + offset.y));
+                    cx.notify();
                 }
-                "down" => {
-                    let mut offset = self.scroll.offset();
-                    offset.y -= px(60.);
-                    self.scroll.set_offset(offset);
+                "end" => {
+                    self.selection_hold = false;
+                    self.follow.latest();
+                    self.scroll.scroll_to_bottom();
+                    cx.notify();
                 }
                 _ => return,
             }
@@ -613,18 +813,17 @@ impl AgentView {
         cx: &Context<Self>,
     ) -> Stateful<Div> {
         let colors = theme::palette(cx);
-        let index = self
-            .controls()
-            .iter()
-            .position(|candidate| *candidate == control)
-            .unwrap_or(0);
-        let selected = self.selected == index;
+        let selected = self.selected == control;
         let scroll = self.scroll.clone();
         div()
             .relative()
-            .id(("agent-control", index))
-            .px_3()
-            .py_2()
+            .id(SharedString::from(format!(
+                "agent-control-{}",
+                Self::control_key(control)
+            )))
+            .px_2()
+            .py_1()
+            .text_size(ui(11.))
             .border_1()
             .border_color(rgb(if selected {
                 colors.accent
@@ -632,15 +831,28 @@ impl AgentView {
                 colors.border
             }))
             .rounded_md()
-            .bg(rgb(colors.surface))
+            .bg(rgb(if control == Control::Run {
+                colors.accent
+            } else {
+                colors.surface
+            }))
+            .text_color(rgb(if control == Control::Run {
+                colors.bg
+            } else {
+                colors.text
+            }))
             .cursor_pointer()
             .child(label.into())
             .when(
                 selected
                     && matches!(
                         control,
-                        Control::Preview(_)
-                            | Control::Open(_)
+                        Control::Preview(_, _)
+                            | Control::Open(_, _)
+                            | Control::CopyTurn(_)
+                            | Control::CopyCode(_, _)
+                            | Control::Activity(_)
+                            | Control::Retry(_)
                             | Control::MemorySave
                             | Control::MemoryReload
                             | Control::MemoryRevert
@@ -683,24 +895,103 @@ impl AgentView {
             }))
     }
 }
+impl AgentView {
+    fn reveal_editor(&self) -> impl IntoElement {
+        let scroll = self.scroll.clone();
+        canvas(
+            move |bounds, window, cx| {
+                let viewport = scroll.bounds();
+                if viewport.size.height <= px(0.) {
+                    return;
+                }
+                let shift = if bounds.top() < viewport.top() {
+                    viewport.top() - bounds.top()
+                } else if bounds.bottom() > viewport.bottom() {
+                    viewport.bottom() - bounds.bottom()
+                } else {
+                    px(0.)
+                };
+                if shift.abs() > px(0.5) {
+                    let mut offset = scroll.offset();
+                    offset.y += shift;
+                    let scroll = scroll.clone();
+                    window.defer(cx, move |_, cx| {
+                        scroll.set_offset(offset);
+                        cx.refresh_windows();
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
+    }
+    fn control_key(control: Control) -> String {
+        match control {
+            Control::CopyTurn(id) => format!("copy-{id}"),
+            Control::CopyCode(id, block) => format!("code-{id}-{block}"),
+            Control::Retry(id) => format!("retry-{id}"),
+            Control::Activity(id) => format!("activity-{id}"),
+            Control::Preview(id, index) => format!("preview-{id}-{index}"),
+            Control::Open(id, index) => format!("open-{id}-{index}"),
+            _ => format!("{control:?}"),
+        }
+    }
+}
 impl Render for AgentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme::palette(cx);
-        let mut memory_height =
-            px((f32::from(window.viewport_size().height) * 0.24).clamp(72., 160.));
-        // Keep the complete editor viewport reachable in a compact pane. Its
-        // own text scroll handles longer notes; the outer body handles controls.
-        let body_height = self.scroll.bounds().size.height;
-        if body_height > px(0.) {
-            memory_height = memory_height.min(body_height);
+        // A mouse selection holds the visible text stable until focus leaves the
+        // transcript or Jump to latest is chosen. Snapshots continue accumulating.
+        let ids = self
+            .transcript
+            .turns
+            .iter()
+            .map(|turn| turn.id)
+            .collect::<Vec<_>>();
+        self.rendered.retain(|id, _| ids.contains(id));
+        if !self.selection_hold {
+            for turn in &self.transcript.turns {
+                if self
+                    .rendered
+                    .get(&turn.id)
+                    .is_none_or(|(text, _)| text != &turn.text)
+                {
+                    self.rendered
+                        .insert(turn.id, (turn.text.clone(), markdown_blocks(&turn.text)));
+                }
+            }
         }
-        let memory_selected = self.controls().get(self.selected) == Some(&Control::MemoryEditor);
-        let memory_scroll = self.scroll.clone();
-        let body = if self.close_prompt {
-            div()
-                .p_4()
-                .child("Workspace memory has unsaved edits.")
-                .child(
+        if !self.controls().contains(&self.selected) {
+            self.selected = Control::Composer;
+        }
+        let memory_height = (window.viewport_size().height * 0.24)
+            .min(ui(160.).to_pixels(window.rem_size()))
+            .max(ui(64.).to_pixels(window.rem_size()));
+        let mut body = div()
+            .id("agent-transcript")
+            .track_scroll(&self.scroll)
+            .overflow_y_scroll()
+            .flex_1()
+            .min_h_0()
+            .p_4()
+            .text_size(ui(13.))
+            .line_height(ui(22.))
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+                let delta = event.delta.pixel_delta(window.line_height());
+                this.follow.observe_user_scroll(f32::from(
+                    this.scroll.max_offset().height + this.scroll.offset().y + delta.y,
+                ));
+                cx.notify();
+            }))
+            .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
+                this.selection_hold = true;
+                this.follow.following = false;
+                cx.notify();
+            }));
+        if self.close_prompt {
+            body = body.child(
+                div().child("Workspace memory has unsaved edits.").child(
                     div()
                         .mt_3()
                         .flex()
@@ -717,108 +1008,296 @@ impl Render for AgentView {
                         ))
                         .child(self.button("Discard edits", Control::DiscardClose, cx))
                         .child(self.button("Keep editing", Control::KeepEditing, cx)),
-                )
-                .into_any_element()
+                ),
+            );
         } else {
-            let mut body = div()
-                .id("agent-answer")
-                .track_scroll(&self.scroll)
-                .overflow_y_scroll()
-                .flex_1()
-                .min_h_0()
-                .p_4()
-                .text_size(ui(12.))
-                .line_height(ui(20.));
-            if let Some(result) = &self.result {
-                body = body.child(div().whitespace_normal().child(result.answer.clone()));
-                if !result.citations.is_empty() {
-                    body = body.child(
-                        div()
-                            .mt_5()
-                            .mb_2()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Cited files"),
+            let mut column = div().w_full().max_w(ui(760.)).mx_auto().min_w_0();
+            if self.transcript.turns.is_empty() && !self.memory_open {
+                column = column.child(
+                    div()
+                        .pt_4()
+                        .text_color(rgb(colors.muted))
+                        .child("Ask about the files in your open panes."),
+                );
+            }
+            for turn in &self.transcript.turns {
+                let id = turn.id;
+                let rendered = self
+                    .rendered
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| (String::new(), vec![]));
+                let mut message = div().id(("agent-turn", id)).mb_6().min_w_0().child(
+                    div()
+                        .mb_3()
+                        .px_3()
+                        .py_2()
+                        .bg(rgb(colors.surface))
+                        .rounded_md()
+                        .child(
+                            div()
+                                .mb_1()
+                                .text_size(ui(10.))
+                                .text_color(rgb(colors.muted))
+                                .child("You"),
+                        )
+                        .child(div().whitespace_normal().child(turn.prompt.clone())),
+                );
+                if !turn.activities.is_empty() {
+                    let running = turn.state == TurnState::Streaming
+                        && turn
+                            .activities
+                            .iter()
+                            .any(|activity| activity.state == AgentActivityState::Running);
+                    message = message.child(div().mb_3().child(self.button(
+                        format!(
+                            "{} {} file action{}{}",
+                            if turn.activity_open { "Hide" } else { "Show" },
+                            turn.activities.len(),
+                            if turn.activities.len() == 1 { "" } else { "s" },
+                            if running { " · working" } else { "" }
+                        ),
+                        Control::Activity(id),
+                        cx,
+                    )));
+                    if turn.activity_open {
+                        for activity in &turn.activities {
+                            message = message.child(
+                                div()
+                                    .mb_1()
+                                    .text_size(ui(11.))
+                                    .text_color(rgb(
+                                        if activity.state == AgentActivityState::Error {
+                                            colors.danger
+                                        } else {
+                                            colors.muted
+                                        },
+                                    ))
+                                    .whitespace_normal()
+                                    .child(format!(
+                                        "{} · {}",
+                                        match activity.state {
+                                            AgentActivityState::Running =>
+                                                if turn.state == TurnState::Streaming {
+                                                    "Reading"
+                                                } else {
+                                                    "Stopped"
+                                                },
+                                            AgentActivityState::Complete => "Done",
+                                            AgentActivityState::Error => "Failed",
+                                        },
+                                        activity.title
+                                    )),
+                            );
+                        }
+                    }
+                }
+                for (index, block) in rendered.1.iter().enumerate() {
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    block.markdown.hash(&mut hasher);
+                    let block_id = format!("agent-markdown-{id}-{index}-{:x}", hasher.finish());
+                    let rem_size = window.rem_size();
+                    let mut code_style = div()
+                        .bg(rgb(colors.surface))
+                        .text_size(ui(12.))
+                        .font_family(theme::terminal(cx).font_family);
+                    let text_style = TextViewStyle::default()
+                        .code_block(gpui::Styled::style(&mut code_style).clone())
+                        .paragraph_gap(rems(0.75))
+                        .heading_font_size(move |level, _| {
+                            ui(match level {
+                                1 => 20.,
+                                2 => 17.,
+                                _ => 14.,
+                            })
+                            .to_pixels(rem_size)
+                        });
+                    let mut block_view = div().mb_3().min_w_0().w_full();
+                    if block.code.is_some() {
+                        block_view =
+                            block_view.child(div().mb_1().flex().justify_end().child(self.button(
+                                "Copy code",
+                                Control::CopyCode(id, index),
+                                cx,
+                            )));
+                    }
+                    block_view = block_view.child(
+                        TextView::markdown(
+                            SharedString::from(block_id),
+                            block.markdown.clone(),
+                            window,
+                            cx,
+                        )
+                        .selectable(true)
+                        .style(text_style),
                     );
-                    for (i, citation) in result.citations.iter().enumerate() {
-                        body = body.child(
+                    message = message.child(block_view);
+                }
+                if turn.state == TurnState::Streaming {
+                    let label = match turn.phase {
+                        AgentPhase::Waiting => "Working…",
+                        AgentPhase::Reading => "Reading files…",
+                        AgentPhase::Responding => "Responding…",
+                        AgentPhase::Verifying => "Checking references…",
+                    };
+                    message = message.child(
+                        div()
+                            .mt_2()
+                            .text_size(ui(11.))
+                            .text_color(rgb(colors.accent))
+                            .child(label),
+                    );
+                }
+                if matches!(turn.state, TurnState::Stopped | TurnState::Failed) {
+                    message = message.child(
+                        div()
+                            .mt_2()
+                            .text_size(ui(11.))
+                            .text_color(rgb(if turn.state == TurnState::Failed {
+                                colors.danger
+                            } else {
+                                colors.muted
+                            }))
+                            .whitespace_normal()
+                            .child(if turn.state == TurnState::Stopped {
+                                "Stopped · partial response".to_owned()
+                            } else {
+                                turn.error
+                                    .clone()
+                                    .unwrap_or_else(|| "Response interrupted".into())
+                            }),
+                    );
+                }
+                let mut actions = div().mt_2().flex().flex_wrap().gap_2();
+                if !rendered.0.is_empty() {
+                    actions =
+                        actions.child(self.button("Copy response", Control::CopyTurn(id), cx));
+                }
+                if !self.busy && matches!(turn.state, TurnState::Stopped | TurnState::Failed) {
+                    actions = actions.child(self.button("Retry", Control::Retry(id), cx));
+                }
+                message = message.child(actions);
+                if let Some(result) = &turn.result
+                    && !result.citations.is_empty()
+                {
+                    message = message.child(
+                        div()
+                            .mt_4()
+                            .mb_2()
+                            .text_size(ui(11.))
+                            .text_color(rgb(colors.muted))
+                            .child("References"),
+                    );
+                    for (index, citation) in result.citations.iter().enumerate() {
+                        let label = citation.label.clone().unwrap_or_else(|| {
+                            format!(
+                                "{}{}",
+                                citation.location,
+                                citation
+                                    .line
+                                    .map(|line| format!(":{line}"))
+                                    .unwrap_or_default()
+                            )
+                        });
+                        message = message.child(
                             div()
                                 .mb_3()
-                                .child(
-                                    div()
-                                        .text_color(rgb(colors.muted))
-                                        .whitespace_normal()
-                                        .child(citation.label.clone().unwrap_or_else(|| {
-                                            format!(
-                                                "{}{}",
-                                                citation.location,
-                                                citation
-                                                    .line
-                                                    .map(|line| format!(":{line}"))
-                                                    .unwrap_or_default()
-                                            )
-                                        })),
-                                )
+                                .min_w_0()
+                                .child(div().text_size(ui(11.)).whitespace_normal().child(label))
                                 .child(
                                     div()
                                         .mt_1()
                                         .flex()
                                         .flex_wrap()
                                         .gap_2()
-                                        .child(self.button("Preview", Control::Preview(i), cx))
                                         .child(self.button(
-                                            "Open in file pane",
-                                            Control::Open(i),
+                                            "Preview",
+                                            Control::Preview(id, index),
                                             cx,
-                                        )),
+                                        ))
+                                        .child(self.button("Open", Control::Open(id, index), cx)),
                                 ),
                         );
                     }
                 }
-                if !result.results.is_empty() {
-                    body = body.child(div().mt_3().child(format!(
-                        "{} matched files · Open results to browse and operate on them.",
-                        result.results.len()
-                    )));
-                }
-            }
-            if self.busy {
-                body = body.child(
-                    div().mt_3().text_color(rgb(colors.muted)).children(
-                        self.progress
-                            .iter()
-                            .map(|message| div().whitespace_normal().child(message.clone())),
-                    ),
-                );
-            }
-            if self.result.is_none() && !self.busy && !self.memory_open {
-                body=body.child(div().text_color(rgb(colors.muted)).whitespace_normal().child("Ask a question about the open file panes, or choose a search command. Only admitted pane and configured roots are available to host tools."));
+                column = column.child(message);
             }
             if let Some((label, text)) = &self.preview {
-                body = body.child(
+                column = column.child(
                     div()
                         .mt_4()
                         .border_t_1()
                         .border_color(rgb(colors.border))
                         .pt_3()
-                        .child(label.clone())
                         .child(
                             div()
-                                .mt_2()
-                                .font_family(theme::terminal(cx).font_family)
+                                .mb_2()
+                                .text_size(ui(11.))
+                                .text_color(rgb(colors.muted))
                                 .whitespace_normal()
-                                .child(text.clone()),
+                                .child(label.clone()),
+                        )
+                        .child(
+                            TextView::markdown(
+                                "agent-file-preview",
+                                crate::agent_transcript::literal_code(text),
+                                window,
+                                cx,
+                            )
+                            .selectable(true),
                         ),
                 );
             }
             if self.memory_open {
-                body=body.child(div().mt_5().mb_2().font_weight(FontWeight::SEMIBOLD).child("Workspace memory")).child(div().text_color(rgb(colors.muted)).child("Persistent notes for this workspace and plugin. Changes save only when chosen.")).child(div().relative().mt_2().child(Input::new(&self.memory).h(memory_height)).when(memory_selected,|el|el.child(canvas(move|bounds,window,cx|{let viewport=memory_scroll.bounds();if viewport.size.height<=px(0.){return;}let shift=if bounds.size.height>viewport.size.height||bounds.top()<viewport.top(){viewport.top()-bounds.top()}else if bounds.bottom()>viewport.bottom(){viewport.bottom()-bounds.bottom()}else{px(0.)};if shift.abs()>px(0.5){let mut offset=memory_scroll.offset();offset.y+=shift;let scroll=memory_scroll.clone();window.defer(cx,move|_,cx|{scroll.set_offset(offset);cx.refresh_windows();});}},|_,_,_,_|{}).absolute().inset_0()))).child(div().mt_2().flex().flex_wrap().gap_2().child(self.button("Save memory",Control::MemorySave,cx)).child(self.button("Reload memory",Control::MemoryReload,cx)).child(self.button("Revert edits",Control::MemoryRevert,cx))).child(div().mt_2().text_color(rgb(if self.memory_dirty{colors.warning}else{colors.muted})).child(if self.memory_dirty{"Unsaved memory edits"}else{"Memory unchanged"}));
+                column = column
+                    .child(
+                        div()
+                            .mt_5()
+                            .mb_2()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Workspace memory"),
+                    )
+                    .child(
+                        div()
+                            .relative()
+                            .child(Input::new(&self.memory).h(memory_height))
+                            .when(self.selected == Control::MemoryEditor, |editor| {
+                                editor.child(self.reveal_editor())
+                            }),
+                    )
+                    .child(
+                        div()
+                            .mt_2()
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(self.button("Save memory", Control::MemorySave, cx))
+                            .child(self.button("Reload memory", Control::MemoryReload, cx))
+                            .child(self.button("Revert edits", Control::MemoryRevert, cx)),
+                    )
+                    .child(
+                        div()
+                            .mt_2()
+                            .text_size(ui(11.))
+                            .text_color(rgb(if self.memory_dirty {
+                                colors.warning
+                            } else {
+                                colors.muted
+                            }))
+                            .child(if self.memory_dirty {
+                                "Unsaved memory edits"
+                            } else {
+                                "Memory unchanged"
+                            }),
+                    );
             }
-            body.into_any_element()
-        };
-        div()
+            body = body.child(column);
+        }
+        let mut root = div()
             .size_full()
             .flex()
             .flex_col()
+            .min_w_0()
             .bg(rgb(colors.bg))
             .text_color(rgb(colors.text))
             .font_family(theme::ui_font(cx))
@@ -845,58 +1324,98 @@ impl Render for AgentView {
                     cx.stop_propagation();
                 },
             ))
-            .child(body)
-            .when(!self.close_prompt, |el| {
-                el.child(
+            .child(body);
+        if !self.close_prompt {
+            let composer_height = (window.viewport_size().height * 0.3)
+                .min(ui(156.).to_pixels(window.rem_size()))
+                .max(ui(58.).to_pixels(window.rem_size()));
+            let mut footer = div()
+                .flex_shrink_0()
+                .border_t_1()
+                .border_color(rgb(colors.border))
+                .bg(rgb(colors.chrome))
+                .p_3();
+            if self.follow.unread || self.selection_hold {
+                footer = footer.child(div().mb_2().flex().justify_center().child(self.button(
+                    "Jump to latest",
+                    Control::Latest,
+                    cx,
+                )));
+            }
+            footer = footer
+                .child(
                     div()
-                        .flex_shrink_0()
-                        .p_3()
-                        .border_t_1()
-                        .border_color(rgb(colors.border))
-                        .bg(rgb(colors.chrome))
-                        .when_some(self.account.as_ref().filter(|account| account.using_plan), |el, account| {
-                            el.child(div().mb_2().flex().flex_wrap().items_center().gap_2()
-                                .child(div().text_size(ui(11.)).text_color(rgb(colors.muted)).child(account.plan_label.clone().unwrap_or_else(|| "Using account plan".into())))
-                                .when(account.usage_url.is_some(), |el| el.child(self.button("Manage usage", Control::ManageUsage, cx))))
-                        })
-                        .when(self.account.as_ref().is_some_and(|account| account.sign_in_required), |el| {
-                            el.child(div().mb_2().text_size(ui(11.)).text_color(rgb(colors.muted)).whitespace_normal().child("Sign in from AI settings, or choose an API key or local provider."))
-                        })
-                        .child(Input::new(&self.composer))
-                        .child(
-                            div()
-                                .mt_2()
-                                .flex()
-                                .flex_wrap()
-                                .gap_2()
-                                .child(self.button(
-                                    if self.busy { "Cancel" } else { "Run" },
-                                    Control::Run,
-                                    cx,
-                                ))
-                                .child(self.button("Copy", Control::Copy, cx))
-                                .child(self.button("Results", Control::Results, cx))
-                                .child(self.button("Memory", Control::Memory, cx))
-                                .child(self.button("AI settings", Control::Settings, cx)),
-                        ),
+                        .max_h(composer_height)
+                        .child(Input::new(&self.composer)),
                 )
-            })
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .px_3()
-                    .py_2()
-                    .text_size(ui(10.))
-                    .text_color(rgb(if self.error {
-                        colors.danger
-                    } else {
-                        colors.muted
-                    }))
-                    .whitespace_normal()
-                    .child(self.message.clone())
-                    .child(
-                        div().child("Enter runs · Tab / Shift-Tab controls · Escape cancels work"),
-                    ),
-            )
+                .child(
+                    div()
+                        .mt_2()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
+                        .child(self.button(
+                            if self.busy { "Stop" } else { "Send" },
+                            Control::Run,
+                            cx,
+                        ))
+                        .when(
+                            self.result
+                                .as_ref()
+                                .is_some_and(|result| !result.results.is_empty()),
+                            |el| el.child(self.button("Open results", Control::Results, cx)),
+                        )
+                        .child(self.button("Memory", Control::Memory, cx))
+                        .child(self.button("Settings", Control::Settings, cx)),
+                );
+            let mut account = div()
+                .mt_2()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_2()
+                .text_size(ui(10.))
+                .text_color(rgb(colors.muted));
+            if let Some(state) = &self.account {
+                if state.using_plan {
+                    account = account.child(
+                        state
+                            .plan_label
+                            .clone()
+                            .unwrap_or_else(|| "Using account plan".into()),
+                    );
+                    if state.usage_url.is_some() {
+                        account =
+                            account.child(self.button("Manage usage", Control::ManageUsage, cx));
+                    }
+                } else if state.sign_in_required {
+                    account = account.child("Sign in from Settings to use your ChatGPT plan.");
+                }
+            }
+            footer = footer.child(account);
+            if !self.message.is_empty()
+                && (!self.busy || self.transcript.turns.is_empty())
+                && !self.transcript.turns.last().is_some_and(|turn| {
+                    turn.state == TurnState::Failed
+                        && turn.error.as_deref() == Some(self.message.as_str())
+                })
+            {
+                footer = footer.child(
+                    div()
+                        .mt_2()
+                        .text_size(ui(10.))
+                        .text_color(rgb(if self.error {
+                            colors.danger
+                        } else {
+                            colors.muted
+                        }))
+                        .whitespace_normal()
+                        .child(self.message.clone()),
+                );
+            }
+            root = root.child(footer);
+        }
+        root
     }
 }

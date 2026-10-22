@@ -2,6 +2,7 @@ mod account_session;
 mod account_state;
 mod agent_context;
 mod agent_session;
+mod agent_transcript;
 mod agent_view;
 mod appearance;
 mod application_icon;
@@ -982,7 +983,7 @@ impl Browser {
             self.agent_settings_fingerprint = agent_settings;
             self.account_sessions.clear();
             self.sync_account_views(cx);
-            self.invalidate_agents(
+            self.clear_private_agents(
                 "Plugin settings changed. Run a new request to use them.",
                 cx,
             );
@@ -2722,7 +2723,7 @@ impl Browser {
     fn discover_plugins(&mut self, cx: &mut Context<Self>) {
         self.account_sessions.clear();
         self.sync_account_views(cx);
-        self.invalidate_agents(
+        self.clear_private_agents(
             "Plugin catalog is reloading. Run a new request after it completes.",
             cx,
         );
