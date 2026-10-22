@@ -178,7 +178,7 @@ pub struct AgentService {
     storage: Option<(PathBuf, std::fs::File)>,
     child: Option<Child>,
     writer: Option<SyncSender<Vec<u8>>>,
-    reader: Receiver<Result<Value>>,
+    reader: Receiver<Result<(Value, usize)>>,
     output_open: std::sync::Arc<AtomicBool>,
     config: Value,
     timeout: Duration,
@@ -244,6 +244,7 @@ impl PluginRegistry {
                         );
                         serde_json::from_slice::<Value>(&line)
                             .context("Agent returned malformed JSON")
+                            .map(|frame| (frame, line.len()))
                     });
                 let failed = result.is_err();
                 if failed {
@@ -372,7 +373,7 @@ impl AgentService {
         loop {
             ensure!(!cancel.load(Ordering::Acquire), "Account request cancelled");
             ensure!(Instant::now() < deadline, "Account request timed out");
-            let frame = match self.reader.recv_timeout(Duration::from_millis(20)) {
+            let (frame, frame_bytes) = match self.reader.recv_timeout(Duration::from_millis(20)) {
                 Ok(frame) => frame?,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(_) => bail!("Account plugin output closed"),
@@ -400,7 +401,7 @@ impl AgentService {
                     continue;
                 }
                 ensure!(
-                    serde_json::to_vec(&frame)?.len() <= MAX_REQUEST_BYTES,
+                    frame_bytes <= MAX_REQUEST_BYTES,
                     "Account callback exceeds 1 MiB"
                 );
                 let callback_id = frame
@@ -661,11 +662,11 @@ impl AgentService {
         self.send(json!({"jsonrpc":"2.0","id":id,"method":"agent.invoke","params":{"protocol_version":PROTOCOL_VERSION,"config":self.config,"request":request}}),deadline,cancel)?;
         let mut frames = 0;
         let mut stream_sequence = 0;
-        let mut stream_bytes = 0usize;
+        let mut inbound_bytes = 0usize;
         loop {
             ensure!(!cancel.load(Ordering::Acquire), "Agent request cancelled");
             ensure!(Instant::now() < deadline, "Agent request timed out");
-            let frame = match self.reader.recv_timeout(Duration::from_millis(20)) {
+            let (frame, frame_bytes) = match self.reader.recv_timeout(Duration::from_millis(20)) {
                 Ok(frame) => frame?,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(_) => bail!("Agent plugin output closed"),
@@ -674,6 +675,14 @@ impl AgentService {
             // A five-minute request may deliver coalesced 25 Hz snapshots.
             // Bound both frame count and cumulative bytes without retaining them.
             ensure!(frames <= 8192, "Agent exceeded frame budget");
+            // Count every inbound wire frame exactly once, including callback
+            // requests and the final response. Preserve whitespace/newline size
+            // from the reader instead of charging only normalized JSON data.
+            inbound_bytes = inbound_bytes.saturating_add(frame_bytes);
+            ensure!(
+                inbound_bytes <= 256 * 1024 * 1024,
+                "Agent exceeded invocation byte budget"
+            );
             ensure!(
                 frame["jsonrpc"] == "2.0",
                 "Agent frame has invalid JSON-RPC version"
@@ -695,16 +704,11 @@ impl AgentService {
                         update.validate(stream_sequence)?;
                         stream_sequence = update.sequence;
                     }
-                    stream_bytes = stream_bytes.saturating_add(serde_json::to_vec(&event)?.len());
-                    ensure!(
-                        stream_bytes <= 256 * 1024 * 1024,
-                        "Agent exceeded streaming byte budget"
-                    );
                     progress(event);
                     continue;
                 }
                 ensure!(
-                    serde_json::to_vec(&frame)?.len() <= MAX_REQUEST_BYTES,
+                    frame_bytes <= MAX_REQUEST_BYTES,
                     "Agent host callback exceeds 1 MiB"
                 );
                 let callback_id = frame

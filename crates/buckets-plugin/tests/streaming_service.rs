@@ -8,7 +8,8 @@ fn fixture(mode: &str) -> (tempfile::TempDir, PluginRegistry, AgentRequest) {
         directory.path().join("plugin.json"),
         json!({
             "id":"stream-fixture","name":"Stream fixture","protocol_version":1,
-            "executable":"python3","args":["stream.py"],"capabilities":["agent"],"timeout_ms":5000
+            "executable":"python3","args":["stream.py"],"capabilities":["agent"],
+            "timeout_ms":if mode == "callback_budget" { 30000 } else { 5000 }
         })
         .to_string(),
     )
@@ -16,6 +17,13 @@ fn fixture(mode: &str) -> (tempfile::TempDir, PluginRegistry, AgentRequest) {
     fs::write(directory.path().join("stream.py"), r#"import json,sys
 for line in sys.stdin:
  f=json.loads(line);r=f['params']['request'];mode=r['prompt']
+ if mode=='callback_budget':
+  for n in range(300):
+   callback={'jsonrpc':'2.0','id':'callback-'+str(n),'method':'workspace.snapshot','params':{'padding':'x'*524288}}
+   print(json.dumps(callback)+' '*(524288-1024),flush=True)
+   if not sys.stdin.readline(): sys.exit(0)
+  print(json.dumps({'jsonrpc':'2.0','id':f['id'],'result':{'answer':'Budget was not enforced','citations':[],'results':[]}}),flush=True)
+  continue
  count=1100 if mode=='many' else 2
  for n in range(count):
   update={'sequence':n+1,'text':'Hello 😀\n**Markdown**','phase':'responding','activities':[{'id':'read-1','title':'Read file · /fixture/main.rs','state':'complete'}]}
@@ -90,4 +98,31 @@ fn malformed_streams_are_bounded_before_reaching_presentation_and_poison_the_ser
         assert!(error.to_string().contains(message), "{mode}: {error:#}");
         assert!(!service.is_running());
     }
+}
+
+#[test]
+fn callback_only_traffic_exhausts_the_invocation_wire_budget_before_dispatch() {
+    let (_directory, registry, request) = fixture("callback_budget");
+    let mut service = registry.start_agent("stream-fixture").unwrap();
+    let mut callbacks = 0;
+    let error = service
+        .invoke(
+            request,
+            |method, _| {
+                assert_eq!(method, "workspace.snapshot");
+                callbacks += 1;
+                Ok(json!({}))
+            },
+            |_| panic!("The fixture sends callbacks only, no progress frames"),
+            &AtomicBool::new(false),
+        )
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("invocation byte budget"),
+        "{error:#}"
+    );
+    // Each physical line is just below 1 MiB; half of it is whitespace.
+    // Charging normalized JSON would fail to exhaust the budget in 300 calls.
+    assert_eq!(callbacks, 256);
+    assert!(!service.is_running());
 }
