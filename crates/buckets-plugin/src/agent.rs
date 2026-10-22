@@ -107,7 +107,69 @@ pub struct AgentResult {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentEvent {
     pub request_id: String,
+    #[serde(default)]
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<AgentUpdate>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentPhase {
+    Waiting,
+    Reading,
+    Responding,
+    Verifying,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentActivityState {
+    Running,
+    Complete,
+    Error,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct AgentActivity {
+    pub id: String,
+    pub title: String,
+    pub state: AgentActivityState,
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentUpdate {
+    pub sequence: u64,
+    pub text: String,
+    pub phase: AgentPhase,
+    pub activities: Vec<AgentActivity>,
+}
+impl AgentUpdate {
+    fn validate(&self, previous_sequence: u64) -> Result<()> {
+        ensure!(
+            self.sequence > previous_sequence,
+            "Agent stream sequence did not advance"
+        );
+        ensure!(self.text.len() <= 65536, "Agent stream text exceeds 64 KiB");
+        ensure!(
+            self.activities.len() <= 32,
+            "Agent stream has too many activities"
+        );
+        let mut ids = std::collections::BTreeSet::new();
+        for activity in &self.activities {
+            ensure!(
+                !activity.id.is_empty()
+                    && activity.id.len() <= 128
+                    && !activity.id.chars().any(char::is_control),
+                "Invalid agent activity identifier"
+            );
+            ensure!(
+                activity.title.len() <= 512 && !activity.title.chars().any(char::is_control),
+                "Invalid agent activity title"
+            );
+            ensure!(
+                ids.insert(&activity.id),
+                "Duplicate agent activity identifier"
+            );
+        }
+        Ok(())
+    }
 }
 
 /// One serial duplex connection. Use off the UI thread; dropping it terminates
@@ -598,6 +660,8 @@ impl AgentService {
         let deadline = Instant::now() + self.timeout;
         self.send(json!({"jsonrpc":"2.0","id":id,"method":"agent.invoke","params":{"protocol_version":PROTOCOL_VERSION,"config":self.config,"request":request}}),deadline,cancel)?;
         let mut frames = 0;
+        let mut stream_sequence = 0;
+        let mut stream_bytes = 0usize;
         loop {
             ensure!(!cancel.load(Ordering::Acquire), "Agent request cancelled");
             ensure!(Instant::now() < deadline, "Agent request timed out");
@@ -607,7 +671,9 @@ impl AgentService {
                 Err(_) => bail!("Agent plugin output closed"),
             };
             frames += 1;
-            ensure!(frames <= 1024, "Agent exceeded frame budget");
+            // A five-minute request may deliver coalesced 25 Hz snapshots.
+            // Bound both frame count and cumulative bytes without retaining them.
+            ensure!(frames <= 8192, "Agent exceeded frame budget");
             ensure!(
                 frame["jsonrpc"] == "2.0",
                 "Agent frame has invalid JSON-RPC version"
@@ -624,6 +690,15 @@ impl AgentService {
                     ensure!(
                         event.request_id == request.request_id && event.message.len() <= 4096,
                         "Invalid agent progress context"
+                    );
+                    if let Some(update) = &event.update {
+                        update.validate(stream_sequence)?;
+                        stream_sequence = update.sequence;
+                    }
+                    stream_bytes = stream_bytes.saturating_add(serde_json::to_vec(&event)?.len());
+                    ensure!(
+                        stream_bytes <= 256 * 1024 * 1024,
+                        "Agent exceeded streaming byte budget"
                     );
                     progress(event);
                     continue;

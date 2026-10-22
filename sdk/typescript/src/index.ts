@@ -170,6 +170,11 @@ export interface AgentRequest {
 export interface Citation { location: string; line?: number; label?: string }
 export interface AgentFile { location: string; name: string; is_dir?: boolean; line?: number; snippet?: string; reason?: string; score?: number }
 export interface AgentResult { answer: string; citations: Citation[]; results: AgentFile[]; memory?: string }
+/** Full replaceable provisional snapshots. Only the final result carries verified file actions. */
+export type AgentPhase = 'waiting' | 'reading' | 'responding' | 'verifying';
+export interface AgentActivity { id: string; title: string; state: 'running' | 'complete' | 'error' }
+export interface AgentUpdate { sequence: number; text: string; phase: AgentPhase; activities: AgentActivity[] }
+export interface AgentProgress { request_id: string; message: string; update?: AgentUpdate }
 export interface FileRead { location: string; name?: string; text: string; truncated: boolean; binary: boolean }
 export interface FileSearch { results: AgentFile[]; truncated: boolean }
 
