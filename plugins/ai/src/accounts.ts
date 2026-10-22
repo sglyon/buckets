@@ -93,7 +93,11 @@ export class ChatGPTAccounts {
     let value: Record<string, unknown>; try { value = JSON.parse(raw); } catch { throw new TokenError(false); }
     if (!response.ok) throw new TokenError(typeof value.error === 'string' && TERMINAL_REFRESH.has(value.error));
     const scopes = value.scope === undefined && previous ? previous.scopes : text(value.scope, 4096) ? value.scope.split(/\s+/).filter(Boolean) : undefined;
-    const refresh = value.refresh_token ?? previous?.refresh; const idToken = value.id_token ?? previous?.id_token;
+    // SIWC rotates the renewable credential on every successful exchange.
+    // An omitted replacement is malformed, never permission to reuse a token
+    // the server may already have consumed. The enclosing lease preserves the
+    // prior record on this failure, allowing an explicit retry/reconnection.
+    const refresh = value.refresh_token; const idToken = value.id_token ?? previous?.id_token;
     if (!text(value.access_token) || !text(refresh) || !text(idToken) || !scopes || typeof value.expires_in !== 'number' || !Number.isFinite(value.expires_in) || value.expires_in <= 0 || (value.token_type !== undefined && String(value.token_type).toLowerCase() !== 'bearer')) throw new TokenError(false);
     return { access: value.access_token, refresh, id_token: idToken, expires_at: this.now() + value.expires_in * 1000, scopes, ...(typeof value.earliest_refresh_at === 'number' ? { earliest_refresh_at: value.earliest_refresh_at * 1000 } : {}) };
   }

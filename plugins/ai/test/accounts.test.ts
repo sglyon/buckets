@@ -13,7 +13,7 @@ import { WorkspaceAI } from '../src/runtime.ts';
 import { readConfig } from '../src/config.ts';
 import { request } from './helpers.ts';
 
-interface FixtureSettings { deny?: boolean; wrongState?: boolean; badNonce?: boolean; badSignature?: boolean; wrongAudience?: boolean; subject?: string; scopes?: string; tokenFailure?: string; refreshFailure?: string; revocationFailure?: boolean; callbackClient?: string; responseFailure?: string; incomplete?: boolean; eof?: boolean; toolFirst?: boolean; beforeResponse?: () => Promise<void> }
+interface FixtureSettings { deny?: boolean; wrongState?: boolean; badNonce?: boolean; badSignature?: boolean; wrongAudience?: boolean; subject?: string; scopes?: string; tokenFailure?: string; refreshFailure?: string; omitRefreshToken?: boolean; revocationFailure?: boolean; callbackClient?: string; responseFailure?: string; httpStatus?: number; incomplete?: boolean; eof?: boolean; toolFirst?: boolean; beforeResponse?: () => Promise<void> }
 async function fixture(run: (f: { manager: ChatGPTAccounts; rpc: RequestContext; options: AccountOptions; state: () => any; settings: FixtureSettings; urls: URL[]; bodies: Record<string, unknown>[]; advances: (ms: number) => void; calls: string[]; leaseCount: () => number }) => Promise<void>) {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const key = { ...publicKey.export({ format: 'jwk' }), kid: 'fixture-key', alg: 'RS256', use: 'sig' };
@@ -34,12 +34,13 @@ async function fixture(run: (f: { manager: ChatGPTAccounts; rpc: RequestContext;
       const header = Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'fixture-key' })).toString('base64url');
       const claims = Buffer.from(JSON.stringify(payload)).toString('base64url');
       const signature = sign('sha256', Buffer.from(`${header}.${claims}`), privateKey).toString('base64url');
-      json({ access_token: refresh ? 'fixture-refreshed-access' : 'fixture-access', refresh_token: refresh ? 'fixture-rotated-refresh' : 'fixture-refresh', id_token: `${header}.${claims}.${settings.badSignature ? 'invalid-signature' : signature}`, token_type: 'Bearer', scope: settings.scopes ?? 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct', expires_in: 3600 }); return;
+      json({ access_token: refresh ? 'fixture-refreshed-access' : 'fixture-access', ...(!settings.omitRefreshToken ? { refresh_token: refresh ? 'fixture-rotated-refresh' : 'fixture-refresh' } : {}), id_token: `${header}.${claims}.${settings.badSignature ? 'invalid-signature' : signature}`, token_type: 'Bearer', scope: settings.scopes ?? 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct', expires_in: 3600 }); return;
     }
     if (req.url === '/v1/models') { assert.match(req.headers.authorization ?? '', /^Bearer fixture-/); json({ models: [{ slug: 'hidden', display_name: 'Hidden', visibility: 'hide' }, { slug: 'fixture-model', display_name: 'Fixture model', visibility: 'list' }] }); return; }
     if (req.url === '/v1/responses') {
       assert.match(req.headers.authorization ?? '', /^Bearer fixture-/); const body = JSON.parse(raw); bodies.push(body);
       await settings.beforeResponse?.();
+      if (settings.httpStatus) { json({ error: { message: 'SECRET-reflected-body' } }, settings.httpStatus); return; }
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       const event = (value: unknown) => res.write(`data: ${JSON.stringify(value)}\n\n`);
       event({ type: 'response.created', response: { id: 'fixture-response', status: 'in_progress', output: [] } });
@@ -137,6 +138,11 @@ test('refresh rotates credentials once under a lease; terminal failures clear to
   f.advances(3600000); f.settings.refreshFailure = 'server_error'; await assert.rejects(f.manager.modelConnection(''), /renew/); assert.ok(f.state().accounts[0].tokens);
   f.settings.refreshFailure = 'invalid_grant'; await assert.rejects(f.manager.modelConnection(''), /expired/); assert.equal(f.state().accounts[0].tokens, undefined); assert.ok(f.state().accounts[0].client_id); assert.equal(f.leaseCount(), 0);
 }));
+test('a successful refresh without a replacement token preserves the old record and rejects the malformed exchange', async () => fixture(async f => {
+  await f.manager.invoke({ action: 'sign_in' }); const original = f.state().accounts[0].tokens; f.advances(3600000); f.settings.omitRefreshToken = true;
+  await assert.rejects(f.manager.modelConnection(''), /could not renew/); assert.deepEqual(f.state().accounts[0].tokens, original); assert.equal(f.leaseCount(), 0);
+  delete f.settings.omitRefreshToken; assert.equal((await f.manager.modelConnection('')).token, 'fixture-refreshed-access'); assert.equal(f.state().accounts[0].tokens.refresh, 'fixture-rotated-refresh');
+}));
 test('sign-out revokes then clears locally, retaining host and registration; offline revocation is explicit', async () => fixture(async f => {
   const connected = await f.manager.invoke({ action: 'sign_in' }); const host = f.state().host_id;
   f.settings.revocationFailure = true; const signedOut = await f.manager.invoke({ action: 'sign_out', account_id: connected.active_account_id });
@@ -145,6 +151,28 @@ test('sign-out revokes then clears locally, retaining host and registration; off
 test('SIWC payload excludes unsupported fields and groups local tools without changing names', () => {
   const payload = chatGPTPayload({ model: 'fixture', input: [{ type: 'message', role: 'system', content: 'rules' }], store: true, stream: false, previous_response_id: 'old', max_output_tokens: 3, temperature: 1, tools: [{ type: 'function', name: 'files_read', parameters: { type: 'object' } }] }) as any;
   assert.equal(payload.store, false); assert.equal(payload.stream, true); assert.equal(payload.input[0].role, 'developer'); assert.equal(payload.max_output_tokens, undefined); assert.equal(payload.previous_response_id, undefined); assert.equal(payload.temperature, undefined); assert.equal(payload.tools[0].type, 'namespace'); assert.equal(payload.tools[0].tools[0].name, 'files_read');
+});
+test('HTTP policy and availability failures do not recommend repeated OAuth sign-in', () => {
+  const policy = chatGPTFailure('OpenAI API error 403'); assert.match(policy, /policy or region/); assert.doesNotMatch(policy, /reconnect|Continue with ChatGPT/);
+  const unavailable = chatGPTFailure('OpenAI API error 503'); assert.match(unavailable, /temporarily unavailable/); assert.match(unavailable, /connection is preserved/); assert.doesNotMatch(unavailable, /reconnect/);
+  assert.match(chatGPTFailure('OpenAI API error 401'), /Continue with ChatGPT/);
+});
+test('actual Responses admission distinguishes 401 credentials, 403 policy and 503 availability without exposing HTTP bodies', async () => {
+  for (const status of [401, 403, 503]) await fixture(async f => {
+    await f.manager.invoke({ action: 'sign_in' }); f.settings.httpStatus = status;
+    const directory = await mkdtemp(join(tmpdir(), 'buckets-siwc-http-status-')); let runtime: WorkspaceAI | undefined;
+    try {
+      runtime = await WorkspaceAI.open(directory, { accountOptions: f.options });
+      await assert.rejects(runtime.invoke(request(directory), {}, f.rpc), error => {
+        const message = String(error); assert.doesNotMatch(message, /SECRET-reflected-body/);
+        if (status === 401) assert.match(message, /Continue with ChatGPT/);
+        else { assert.doesNotMatch(message, /reconnect|Continue with ChatGPT/); assert.match(message, status === 403 ? /policy or region/ : /temporarily unavailable/); }
+        return true;
+      });
+      assert.ok(f.state().accounts[0].tokens); await runtime.close(); runtime = undefined;
+      assert.equal((await readFile(join(directory, 'conversation.sqlite'))).includes(Buffer.from('SECRET-reflected-body')), false);
+    } finally { await runtime?.close(); await rm(directory, { recursive: true, force: true }); }
+  });
 });
 test('real durable harness uses signed-in account, namespaces tools and keeps secrets out of SQLite', async () => fixture(async f => {
   await f.manager.invoke({ action: 'sign_in' }); const directory = await mkdtemp(join(tmpdir(), 'buckets-siwc-provider-')); let runtime: WorkspaceAI | undefined;

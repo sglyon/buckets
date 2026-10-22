@@ -12,8 +12,11 @@ export function chatGPTFailure(detail: unknown): string {
   if (/subscription_sharing_user_not_eligible|not eligible/.test(value)) return 'This ChatGPT account is not eligible for plan usage in Buckets (subscription_sharing_user_not_eligible). Choose another account, an API key, or a local provider.';
   if (/unsupported_capability|route_not_supported|not supported by ChatGPT/.test(value)) return 'This request is not supported by ChatGPT plan usage. Check the model and plugin configuration.';
   if (/user_unavailable|usage_unavailable|temporarily unavailable/.test(value)) return 'ChatGPT plan usage is temporarily unavailable. Try again later; your connection is preserved.';
-  if (/invalid_user|chatpass_v2|permission|policy|could not authorize/i.test(value)) return 'ChatGPT could not authorize this request. Review your account access and plan usage in ChatGPT settings.';
-  if (/401|403|unauthori[sz]ed|authentication|session expired|reconnect/i.test(value)) return 'ChatGPT session needs attention. Continue with ChatGPT in Settings to reconnect.';
+  if (/invalid_user|chatpass_v2/i.test(value)) return 'ChatGPT could not authorize this request. Review your account access and plan usage in ChatGPT settings.';
+  if (/\b403\b|forbidden|region restriction|policy restriction|account policy or region/i.test(value)) return 'ChatGPT access is restricted by account policy or region. Review account access or choose another provider.';
+  if (/permission|policy|could not authorize/i.test(value)) return 'ChatGPT could not authorize this request. Review your account access and plan usage in ChatGPT settings.';
+  if (/\b503\b|temporarily unavailable/i.test(value)) return 'ChatGPT plan usage is temporarily unavailable. Try again later; your connection is preserved.';
+  if (/\b401\b|unauthori[sz]ed|authentication|session expired|reconnect/i.test(value)) return 'ChatGPT session needs attention. Continue with ChatGPT in Settings to reconnect.';
   if (/account changed|disconnected/i.test(value)) return 'The ChatGPT account changed or disconnected. Submit a new question after connecting.';
   if (/incomplete|did not complete|terminal response|stream ended|interrupted/i.test(value)) return 'ChatGPT response did not complete. Submit a new question to try again.';
   if (/429|rate.limit/i.test(value)) return 'ChatGPT request limit reached. Manage usage in ChatGPT settings or try again later.';
