@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Buckets — bucket with a lowercase b</title>
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="#1a1b26"/>
+  <!-- Filled handle, so every renderer preserves its weight. -->
+  <path d="M318 430V375C318 268 405 210 512 210C619 210 706 268 706 375V430H650V375C650 301 590 266 512 266C434 266 374 301 374 375V430Z" fill="#7dcfff"/>
+  <!-- A broad lip and tapered body keep the bucket legible at small sizes. -->
+  <path d="M290 447H734L679 763Q672 795 635 795H389Q352 795 345 763Z" fill="#7aa2f7"/>
+  <rect x="267" y="411" width="490" height="64" rx="24" fill="#7dcfff"/>
+  <!-- The b is a true cutout: its counter shows the bucket beneath. -->
+  <path d="M418 504H474V579Q501 557 539 557C601 557 629 594 629 641C629 688 599 721 542 721Q501 721 474 695V715H418ZM474 641C474 614 493 600 522 600C551 600 572 614 572 641C572 668 553 682 525 682C494 682 474 666 474 641Z" fill="#1a1b26" fill-rule="evenodd"/>
+</svg>

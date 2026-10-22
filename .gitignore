@@ -1,0 +1,10 @@
+/target
+.DS_Store
+.impeccable/review/
+/.venv
+__pycache__/
+*.pyc
+/nvim.log
+node_modules/
+sdk/typescript/dist/
+plugins/ai/dist/

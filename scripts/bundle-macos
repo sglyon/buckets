@@ -1,0 +1,38 @@
+#!/bin/sh
+# Build a portable local .app bundle. Signing/notarization is a distribution step.
+set -eu
+cd "$(dirname "$0")/.."
+case "$(uname -s)" in Darwin) ;; *) echo 'macOS is required to build this bundle.' >&2; exit 1;; esac
+profile="${1:-debug}"
+case "$profile" in
+  debug) cargo build -p buckets-app ;;
+  release) cargo build -p buckets-app --release ;;
+  *) echo 'Usage: scripts/bundle-macos [debug|release]' >&2; exit 2 ;;
+esac
+bundle="target/$profile/Buckets.app"
+mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
+cp "target/$profile/buckets" "$bundle/Contents/MacOS/buckets"
+cp "crates/buckets-app/assets/icon/Buckets.icns" "$bundle/Contents/Resources/Buckets.icns"
+# GPUI may generate a Metal shader library next to the binary.
+for resource in target/"$profile"/*.metallib; do
+  if [ -f "$resource" ]; then cp "$resource" "$bundle/Contents/MacOS/"; fi
+done
+cat > "$bundle/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>Buckets</string>
+<key>CFBundleDisplayName</key><string>Buckets</string>
+<key>CFBundleIdentifier</key><string>dev.sglyon.buckets</string>
+<key>CFBundleExecutable</key><string>buckets</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>Buckets</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+</dict></plist>
+PLIST
+codesign --force --deep --sign - "$bundle"
+printf 'Created %s/%s\n' "$PWD" "$bundle"

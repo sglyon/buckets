@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-22T00:52:34.272478+00:00",
+  "title": "Design System: Buckets",
+  "extensions": {
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "compact-native-viewport",
+        "value": "1200px"
+      }
+    ],
+    "native": {
+      "platform": "macOS",
+      "renderer": "Rust + GPUI",
+      "source": "crates/buckets-app/src/main.rs",
+      "keybindingsSource": "crates/buckets-app/src/keybindings.rs",
+      "settingsSource": "crates/buckets-app/src/settings_view.rs",
+      "menuSource": "crates/buckets-app/src/menus.rs",
+      "componentPreviewPolicy": "HTML/CSS snippets are documentation-panel translations, not runtime components or interaction-test evidence. GPUI radius aliases and native input geometry remain authoritative in source; preview radii are illustrative. No browser defaults audit applies to the native app.",
+      "verificationBoundary": "Shortcut captures establish displayed scope, effective values and compact wrapping. Live remap, disable/reset, conflict retention and terminal input ownership come from the separate native verifier for build DAF11CDE-C063-3E15-B012-14C7DFF66A5C, not from static images.",
+      "evidence": [
+        ".impeccable/review/desktop.png",
+        ".impeccable/review/quick-look.png",
+        ".impeccable/review/small.png",
+        ".impeccable/review/settings-desktop.png",
+        ".impeccable/review/settings-plugins.png",
+        ".impeccable/review/settings-json-error.png",
+        ".impeccable/review/bookmarks-desktop.png",
+        ".impeccable/review/settings-compact24.png",
+        ".impeccable/review/settings-compact-json.png",
+        ".impeccable/review/inline-filter.png",
+        ".impeccable/review/inline-filter-compact24.png",
+        ".impeccable/review/shortcuts-desktop.png",
+        ".impeccable/review/shortcuts-compact24.png",
+        "target/icon-preview-256.png",
+        ".impeccable/review/recording-desktop.png",
+        ".impeccable/review/recording-compact24.png",
+        ".impeccable/review/recording-verdict.md",
+        "target/recording-private-qa/native-verification.md",
+        ".impeccable/review/theme-verdict.md",
+        ".impeccable/review/ai-boundary-verdict.md"
+      ],
+      "unverified": [
+        "Screen-reader behavior",
+        "All rendered contrast combinations",
+        "Static captures do not prove key handling, JSON guards, persistence, or terminal input ownership",
+        "Uncaptured Git badge and plugin shortcut states",
+        "Linux behavior",
+        "Native theme presentation and input behavior on build 16BE6073-23E8-3598-AAB4-EEB4EA1E2C3A: NOT REVIEWED; no captures were produced",
+        "AI native presentation and input on build A33E70B0-E63E-3F9B-919B-547CE9719C50: NOT REVIEWED; no AI captures or UI input evidence"
+      ],
+      "iconSource": "crates/buckets-app/assets/icon/buckets.svg",
+      "iconReproduction": "scripts/render-icon.sh; scripts/bundle-macos",
+      "appearanceSource": "crates/buckets-app/src/appearance.rs",
+      "themeSource": "crates/buckets-app/src/theme.rs",
+      "recorderVerification": {
+        "binaryUuid": "DBE208BB-F167-3D5B-9462-E49E0CF54290",
+        "presentationVerdict": "SHIP within recorder scope",
+        "nativeProof": "target/recording-private-qa/native-verification.md",
+        "presentationProof": ".impeccable/review/recording-verdict.md",
+        "contract": "Capture is separate from save. Apply replaces alternatives with one candidate; Clear disables; Cancel or bare Escape preserves saved bindings. Conflicts retain candidate and prior binding. Selected controls scroll into view at compact 24pt."
+      },
+      "themeVerification": {
+        "binaryUuid": "16BE6073-23E8-3598-AAB4-EEB4EA1E2C3A",
+        "presentationVerdict": "NOT REVIEWED",
+        "reason": "Two native app connection attempts hung before any screenshot, accessibility tree or input evidence. No native theme coverage exists.",
+        "proof": ".impeccable/review/theme-verdict.md",
+        "implementation": "13 semantic color overrides, independent UI and terminal font families with bundled fallback notice, and optional complete 16-color terminal ANSI palette. Defaults remain Tokyo Night. Validation and durable save precede live theme application.",
+        "requiredFollowup": "Review desktop 1440\u00d7900/13pt and compact 960\u00d7640/24pt fonts, semantic token labels/values/swatches, focus, reset/error states and terminal propagation."
+      },
+      "agentPresentationSource": "crates/buckets-app/src/agent_view.rs",
+      "agentOrchestrationSource": "crates/buckets-app/src/agent_session.rs",
+      "agentContextSource": "crates/buckets-app/src/agent_context.rs",
+      "agentVerification": {
+        "binaryUuid": "A33E70B0-E63E-3F9B-919B-547CE9719C50",
+        "sourceBoundaryVerdict": "APPROVED",
+        "sourceBoundaryProof": ".impeccable/review/ai-boundary-verdict.md",
+        "presentationVerdict": "NOT REVIEWED",
+        "reason": "Native inventory succeeded; duplicate isolated QA registration was corrected, but the corrected app connection hung before any bound accessibility tree, screenshot or input. The bounded attempt was interrupted. No AI native captures or input evidence exist.",
+        "implementedContract": "Generic plugin-host action opens an Agent pane. Presentation, orchestration and context admission are separate. Ask returns answers/citations; hybrid prefix search opens real result file panes with reasons; persistent notes save explicitly and guard dirty close. Typed host tools are read-only.",
+        "limits": [
+          "Headless and installed integration checks do not establish visual readiness",
+          "No real cloud-provider certification",
+          "No live SSH/S3 certification"
+        ],
+        "requiredFollowup": "Native answer/citation readability, preview/open/result navigation, retrieval reasons, focus/input ownership, cancellation, note save/reload/revert/close guards and compact reachability."
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Workspace body",
+        "purpose": "Filenames and primary workspace content."
+      },
+      "input": {
+        "displayName": "Native input theme",
+        "purpose": "GPUI input text."
+      },
+      "quick-look": {
+        "displayName": "Quick Look text",
+        "purpose": "Scrollable file contents."
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Shortcut keycap",
+      "kind": "chip",
+      "refersTo": "keycap",
+      "description": "A compact shortcut label; preview translates the native key() helper. Configurable hints show the first effective alternative plus a bounded (+N) count.",
+      "html": "<span class=\"ds-key\">\u2318T (+1)</span>",
+      "css": ".ds-key {display:inline-block;padding:0 4px;background:#343b58;color:#c0caf5;font:11px \"JetBrains Mono\",monospace;border-radius:2px;}"
+    },
+    {
+      "name": "Commands control",
+      "kind": "button",
+      "refersTo": "command-button",
+      "description": "Raised command-palette trigger. Native behavior remains in GPUI.",
+      "html": "<button class=\"ds-command\"><span class=\"ds-command-key\">\u2318K</span> Commands</button>",
+      "css": ".ds-command {padding:8px 12px;background:#24283b;color:#9aa5ce;border:0;border-radius:4px;font:12px \"JetBrains Mono\",monospace;cursor:pointer}.ds-command-key {padding:0 4px;background:#343b58;color:#c0caf5;font-size:11px;border-radius:2px}.ds-command:focus-visible {outline:1px solid #7aa2f7;outline-offset:2px;}"
+    },
+    {
+      "name": "Active pane header",
+      "kind": "nav",
+      "refersTo": "pane-header-active",
+      "description": "Active pane state combines a dot, label, surface and separator.",
+      "html": "<div class=\"ds-pane\"><span class=\"ds-dot\"></span><strong>source</strong><span class=\"ds-active\">ACTIVE</span></div>",
+      "css": ".ds-pane {height:48px;display:flex;align-items:center;gap:8px;padding:0 16px;background:#24283b;border-bottom:1px solid #7aa2f7;color:#c0caf5;font:12px \"JetBrains Mono\",monospace}.ds-dot {width:7px;height:7px;border-radius:50%;background:#9ece6a}.ds-active {font-size:11px;color:#9aa5ce;}"
+    },
+    {
+      "name": "Current file row",
+      "kind": "custom",
+      "refersTo": "file-row-cursor",
+      "description": "Current row in the active pane. An authored file SVG mirrors the native icon.",
+      "html": "<div class=\"ds-row\" tabindex=\"0\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h8l4 4v14H6Z\"/><path d=\"M14 3v5h4M9 12h6M9 16h6\"/></svg><span class=\"ds-name\">alpha.txt</span><span class=\"ds-size\">79</span><span class=\"ds-type\">TXT</span></div>",
+      "css": ".ds-row {height:29px;padding:0 16px;display:flex;align-items:center;gap:8px;background:#2c3654;border-left:1px solid #7aa2f7;color:#c0caf5;font:12px \"JetBrains Mono\",monospace}.ds-row svg {width:16px;height:16px;color:#9aa5ce}.ds-name {flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-size {width:56px;text-align:right;font-size:11px;color:#9aa5ce}.ds-type {width:64px;text-align:right;font-size:10px;color:#9aa5ce}.ds-row:hover {background:#24283b}.ds-row:focus-visible {outline:1px solid #7aa2f7;outline-offset:-1px;}"
+    },
+    {
+      "name": "Prompt input",
+      "kind": "input",
+      "description": "Illustrative panel preview of the GPUI input theme. Native input supplies editing and focus behavior.",
+      "html": "<input class=\"ds-input\" aria-label=\"Location\" value=\"/Users/sglyon/src/buckets\"/>",
+      "css": ".ds-input {width:300px;padding:8px 12px;background:#343b58;color:#c0caf5;border:1px solid #343b58;border-radius:4px;caret-color:#7aa2f7;font:13px \"JetBrains Mono\",monospace}.ds-input:focus-visible {outline:1px solid #7aa2f7;outline-offset:1px;}"
+    },
+    {
+      "name": "Settings preference row",
+      "kind": "custom",
+      "description": "Documentation-panel translation of a selected native Settings row. GPUI source owns focus, disabled-state and persistence behavior.",
+      "html": "<div class=\"ds-setting\"><div><strong>Increase text size</strong><small>Maximum 24pt. You can also use \u2318+ anywhere.</small></div><span>Maximum \u00b7 24pt</span></div>",
+      "css": ".ds-setting {display:flex;align-items:center;gap:12px;padding:12px;background:#24283b;border:1px solid #7aa2f7;border-radius:4px;color:#c0caf5;font:12px \"JetBrains Mono\",monospace}.ds-setting>div {flex:1;min-width:0}.ds-setting small {display:block;margin-top:4px;color:#9aa5ce;font-size:11px;line-height:17px}.ds-setting>span {max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9aa5ce}"
+    },
+    {
+      "name": "Shortcut settings row",
+      "kind": "custom",
+      "description": "Documentation-panel translation of a selected native Shortcuts row. Enter opens the attached recorder; JSON edits alternatives. Frozen native recorder evidence is separate from this preview.",
+      "html": "<div class=\"ds-shortcut\"><div><strong>Split pane</strong><small>Workspace \u00b7 pane.split \u00b7 Enter to record one shortcut. Alternatives can be edited in JSON. Default: cmd-t</small></div><span>cmd-t</span></div>",
+      "css": ".ds-shortcut {display:flex;align-items:center;gap:12px;padding:12px;background:#24283b;border:1px solid #7aa2f7;border-radius:4px;color:#c0caf5;font:12px \"JetBrains Mono\",monospace}.ds-shortcut>div {flex:1;min-width:0}.ds-shortcut small {display:block;margin-top:4px;color:#9aa5ce;font-size:11px;line-height:17px}.ds-shortcut>span {max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9ece6a}"
+    },
+    {
+      "name": "Inline filename filter",
+      "kind": "input",
+      "description": "Documentation-panel translation of the native bottom command line. The runtime replaces the global status and shortcut strips while filtering.",
+      "html": "<div class=\"ds-filter\"><div class=\"ds-filter-main\"><span>/</span><input aria-label=\"Filter names\" value=\"main\"><small>1 / 6</small></div><div class=\"ds-filter-help\">\u2191\u2193 / Ctrl-N/P \u00b7 Enter open \u00b7 Esc clear \u00b7 fd:/rg:/fff: search</div></div>",
+      "css": ".ds-filter {padding:8px 12px;background:#16161e;border-top:1px solid #7aa2f7;color:#c0caf5;font:12px \"JetBrains Mono\",monospace}.ds-filter-main {display:flex;align-items:center;gap:12px}.ds-filter-main>span {color:#7dcfff}.ds-filter-main input {flex:1;min-width:0;background:#343b58;color:#c0caf5;border:1px solid #343b58;border-radius:4px;padding:6px 8px;font:13px \"JetBrains Mono\",monospace}.ds-filter-main small,.ds-filter-help {color:#9aa5ce;font-size:10px}.ds-filter-help {margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+    },
+    {
+      "name": "Inline shortcut recorder",
+      "kind": "custom",
+      "description": "Documentation-panel translation of the frozen recorder composition. Candidate is unsaved until Apply; the saved row value remains separate. Preview controls do not implement native capture or persistence.",
+      "html": "<div class=\"ds-recorder\"><div><span class=\"ds-candidate\">\u2318Y</span><span class=\"ds-unsaved\">Not saved \u00b7 replaces all alternatives</span></div><div class=\"ds-actions\"><button>Capture</button><button class=\"ds-selected\">Apply</button><button>Clear</button><button>Cancel</button></div><p>Press a chord on Capture. Tab to Apply, then Enter to save. Clear disables; Escape cancels. Use JSON for alternatives.</p></div>",
+      "css": ".ds-recorder {padding:12px;border:1px solid #7aa2f7;border-radius:4px;background:#16161e;color:#c0caf5;font:12px \"JetBrains Mono\",monospace}.ds-candidate {color:#7aa2f7;margin-right:12px}.ds-unsaved,.ds-recorder p {color:#9aa5ce;font-size:11px;line-height:17px}.ds-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.ds-actions button {padding:8px 12px;background:#24283b;border:1px solid #343b58;border-radius:4px;color:#c0caf5;font:inherit}.ds-actions .ds-selected {background:#343b58;border-color:#7aa2f7}.ds-actions button:hover {background:#343b58}.ds-actions button:focus-visible {outline:1px solid #7aa2f7;outline-offset:2px}.ds-recorder p {margin-bottom:0;}"
+    },
+    {
+      "name": "Agent cited-file actions",
+      "kind": "custom",
+      "description": "Source-derived documentation-panel translation of an Agent citation group. Native AI presentation is NOT REVIEWED; this illustrative preview is not a screenshot, live tool or acceptance proof.",
+      "html": "<div class=\"ds-agent-citation\"><strong>Cited files</strong><p>/workspace/project/src/main.rs:12</p><div><button>Preview</button><button>Open in file pane</button></div></div>",
+      "css": ".ds-agent-citation {padding:16px;background:#1a1b26;color:#c0caf5;font:12px \"JetBrains Mono\",monospace;line-height:20px}.ds-agent-citation p {color:#9aa5ce;overflow-wrap:anywhere}.ds-agent-citation>div {display:flex;flex-wrap:wrap;gap:8px}.ds-agent-citation button {padding:8px 12px;border:1px solid #343b58;border-radius:4px;background:#24283b;color:#c0caf5;font:inherit}.ds-agent-citation button:focus-visible {outline:1px solid #7aa2f7;outline-offset:2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "A quiet developer workstation",
+    "overview": "Buckets uses the user's chosen Omarchy-inspired Tokyo Night palette and a compact monospaced workspace. Files and locations occupy the main surface; repeated aligned rows and subdued chrome support quick scanning. The normal workspace keeps shortcuts visible; focused modes consolidate those hints into their own command line or page footer.\n\nThe visual vocabulary is tonal and flat. Blue identifies active focus, cyan identifies directories, and textual state cues supplement color. The broad Quick Look surface temporarily gives file contents the window while preserving the workspace beneath a dark scrim.",
+    "keyCharacteristics": [
+      "Dense, aligned file lists with restrained chrome.",
+      "Distinct active-pane, cursor and marked-file states.",
+      "Real paths and operation outcomes.",
+      "Native rendering, authored geometric icons, and discoverable keyboard commands."
+    ],
+    "rules": [
+      {
+        "name": "The State Separation Rule",
+        "body": "Preserve cursor, mark and active-pane cues independently. A marked file is not synonymous with the current row.",
+        "section": "colors"
+      },
+      {
+        "name": "The Result Visibility Rule",
+        "body": "While filename filtering, replace the global status and shortcut strips with the command line so a compact 960\u00d7640 workspace at 24-point text retains a visible result.",
+        "section": "layout"
+      },
+      {
+        "name": "The Scoped Shortcut Rule",
+        "body": "Expose Files, Workspace and Global scope in Settings, rebuild visible hints from effective bindings, and preserve native editing, raw terminal input and fixed navigation ownership.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "**Do** keep real filesystem content, aligned metadata and distinct keyboard states visible.",
+      "**Do** retain the Tokyo Night tokens and compact native dimensions recorded here.",
+      "**Do** show textual action outcomes and shortcut hints alongside color cues.",
+      "**Do** derive configurable command hints from the effective keybinding map and keep them bounded to the first binding plus an alternatives count.",
+      "**Do** use the existing native icon source and rasterizer when reproducing the app icon."
+    ],
+    "donts": [
+      "**Don't** turn the workspace into a decorative dashboard or add invented data, gradients or excessive roundness.",
+      "**Don't** make Space mark files; it opens Quick Look, while x marks files.",
+      "**Don't** claim visual captures prove keyboard coverage, screen-reader support, or all contrast combinations.",
+      "**Don't** move plugin-specific Git semantics into the host's generic decoration layout.",
+      "**Don't** present native editor commands, raw terminal input or fixed file-navigation keys as configurable application shortcuts."
+    ]
+  }
+}

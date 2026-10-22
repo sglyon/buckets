@@ -1,0 +1,30 @@
+{
+  "id": "git-status",
+  "name": "Git status",
+  "protocol_version": 1,
+  "executable": "python3",
+  "args": [
+    "plugin.py"
+  ],
+  "capabilities": [
+    "decorations"
+  ],
+  "permissions": {
+    "read_roots": [
+      "../../.."
+    ],
+    "network": false
+  },
+  "timeout_ms": 5000,
+  "config": {
+    "show_ignored": false
+  },
+  "settings_fields": [
+    {
+      "key": "show_ignored",
+      "title": "Show ignored files",
+      "description": "Decorate ignored files with a neutral badge.",
+      "kind": "bool"
+    }
+  ]
+}

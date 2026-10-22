@@ -1,0 +1,30 @@
+name: Rust
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run typecheck
+      - run: cargo fmt --all -- --check
+      - run: cargo test --workspace
+      - run: cargo check -p buckets-app
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Install standalone AI plugin
+        run: scripts/install-ai-plugin --config-dir "$RUNNER_TEMP/buckets-ai-ci"
+      - name: Verify installed AI plugin
+        run: cargo test -p buckets-app --test ai_end_to_end -- --ignored
+        env:
+          BUCKETS_AI_E2E_PLUGIN_DIR: ${{ runner.temp }}/buckets-ai-ci/plugins

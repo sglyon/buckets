@@ -1,0 +1,11 @@
+{
+  "id": "rust-commands",
+  "name": "Rust SDK command example",
+  "protocol_version": 1,
+  "executable": "./target/release/buckets-plugin-rust-example",
+  "args": [],
+  "capabilities": ["commands"],
+  "permissions": { "read_roots": [], "network": false },
+  "timeout_ms": 5000,
+  "config": {}
+}

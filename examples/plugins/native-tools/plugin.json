@@ -1,0 +1,64 @@
+{
+  "id": "native-tools",
+  "name": "Developer tools",
+  "protocol_version": 1,
+  "executable": "python3",
+  "args": [
+    "plugin.py"
+  ],
+  "capabilities": [
+    "commands",
+    "terminal"
+  ],
+  "permissions": {
+    "read_roots": [
+      "../../.."
+    ],
+    "network": false,
+    "terminal": true
+  },
+  "timeout_ms": 5000,
+  "config": {
+    "terminal_target": "embedded",
+    "terminal_bundle_id": "com.googlecode.iterm2",
+    "nvim": "nvim",
+    "lazygit": "lazygit"
+  },
+  "settings_fields": [
+    {
+      "key": "terminal_target",
+      "title": "Terminal target",
+      "description": "Default destination for Neovim, Lazygit and shell shortcuts. Explicit iTerm2 commands remain available.",
+      "kind": "select",
+      "options": [
+        "embedded",
+        "iterm2",
+        "external"
+      ]
+    },
+    {
+      "key": "nvim",
+      "title": "Neovim executable",
+      "description": "Executable name or absolute path. Homebrew paths are checked on macOS.",
+      "kind": "text"
+    },
+    {
+      "key": "lazygit",
+      "title": "Lazygit executable",
+      "description": "Executable name or absolute path.",
+      "kind": "text"
+    },
+    {
+      "key": "shell",
+      "title": "Shell executable",
+      "description": "Optional executable path. When unset, uses SHELL or /bin/sh.",
+      "kind": "text"
+    },
+    {
+      "key": "terminal_bundle_id",
+      "title": "External terminal bundle identifier",
+      "description": "Used for configured external launches on macOS. iTerm2 is com.googlecode.iterm2.",
+      "kind": "text"
+    }
+  ]
+}

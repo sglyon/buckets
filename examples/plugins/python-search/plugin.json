@@ -1,0 +1,11 @@
+{
+  "id": "python-search",
+  "name": "Python filename search",
+  "protocol_version": 1,
+  "executable": "python3",
+  "args": ["search.py"],
+  "capabilities": ["search"],
+  "permissions": { "read_roots": ["../../.."], "network": false },
+  "timeout_ms": 10000,
+  "config": { "max_files": 50000 }
+}

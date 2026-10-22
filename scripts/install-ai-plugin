@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Build and install a standalone AI plugin without changing existing plugins."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--config-dir', type=Path, default=Path(os.environ.get('BUCKETS_CONFIG_DIR', '~/.config/buckets')).expanduser())
+parser.add_argument('--node', default=shutil.which('node'))
+args = parser.parse_args()
+if not args.node:
+    parser.error('Node.js 22.19+ is required; install it and retry')
+node = str(Path(args.node).absolute())
+version = subprocess.check_output([node, '--version'], text=True).strip().removeprefix('v')
+parts = tuple(int(part) for part in version.split('.')[:3])
+if parts < (22, 19, 0):
+    parser.error('Node.js 22.19+ is required')
+npm = shutil.which('npm')
+if not npm:
+    parser.error('npm is required to install pinned plugin dependencies')
+repo = Path(__file__).resolve().parent.parent
+plugins = args.config_dir.expanduser().absolute() / 'plugins'
+plugins.mkdir(parents=True, exist_ok=True)
+destination = plugins / 'ai'
+if destination.exists() or destination.is_symlink():
+    parser.error(f'{destination} already exists; keep or explicitly back it up before reinstalling')
+for manifest in plugins.glob('*/plugin.json'):
+    try:
+        if json.loads(manifest.read_text()).get('id') == 'ai':
+            parser.error(f'Plugin ID ai is already registered in {manifest.parent}')
+    except (OSError, ValueError):
+        pass
+
+def run(command, cwd=repo, capture=False):
+    env = os.environ.copy()
+    env['PATH'] = str(Path(node).parent) + os.pathsep + env.get('PATH', '')
+    return subprocess.run(command, cwd=cwd, env=env, check=True, text=True,
+                          stdout=subprocess.PIPE if capture else sys.stderr).stdout
+
+run([npm, 'ci', '--ignore-scripts'])
+run([npm, 'run', 'build'])
+stage = Path(tempfile.mkdtemp(prefix='.ai-install-', dir=plugins))
+try:
+    shutil.copytree(repo / 'plugins/ai/dist', stage / 'dist')
+    shutil.copy2(repo / 'plugins/ai/README.md', stage / 'README.md')
+    (stage / 'vendor').mkdir()
+    packed = json.loads(run([npm, 'pack', '--json', '--pack-destination', str(stage / 'vendor')], cwd=repo / 'sdk/typescript', capture=True))
+    sdk_tarball = packed[0]['filename']
+    package = json.loads((repo / 'plugins/ai/package.json').read_text())
+    package.pop('devDependencies', None)
+    package.pop('scripts', None)
+    package['dependencies']['@buckets/plugin-sdk'] = 'file:vendor/' + sdk_tarball
+    (stage / 'package.json').write_text(json.dumps(package, indent=2) + '\n')
+    run([npm, 'install', '--omit=dev', '--ignore-scripts', '--workspaces=false'], cwd=stage)
+    manifest = json.loads((repo / 'plugins/ai/plugin.json').read_text())
+    manifest['executable'] = node
+    # Relative args remain valid when staging is atomically renamed.
+    manifest['args'] = ['dist/plugin.js']
+    (stage / 'plugin.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    if destination.exists() or destination.is_symlink():
+        raise RuntimeError('Destination appeared during installation; no existing plugin was replaced')
+    stage.rename(destination)
+    print(f'Installed Workspace AI at {destination}')
+    print('Restart Buckets to discover the plugin, then configure it under Settings → Plugins.')
+finally:
+    if stage.exists():
+        shutil.rmtree(stage)

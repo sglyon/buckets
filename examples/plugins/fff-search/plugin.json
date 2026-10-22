@@ -1,0 +1,32 @@
+{
+  "id": "fff-search",
+  "name": "FFF fuzzy file and content search",
+  "protocol_version": 1,
+  "executable": "../../../.venv/bin/python",
+  "args": [
+    "search.py"
+  ],
+  "capabilities": [
+    "search"
+  ],
+  "permissions": {
+    "read_roots": [
+      "../../.."
+    ],
+    "network": false
+  },
+  "timeout_ms": 15000,
+  "config": {
+    "scan_timeout_ms": 8000
+  },
+  "settings_fields": [
+    {
+      "key": "scan_timeout_ms",
+      "title": "Index scan timeout (ms)",
+      "description": "Wait for the FFF initial scan before searching.",
+      "kind": "number",
+      "min": 100,
+      "max": 12000
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/.."
+case "$(uname -s)" in
+  Darwin)
+    # Launch the bundle executable directly so macOS sees its app identity,
+    # while retaining CLI arguments, environment, output and process lifetime.
+    scripts/bundle-macos
+    exec "$PWD/target/debug/Buckets.app/Contents/MacOS/buckets" "$@"
+    ;;
+  *) exec cargo run -p buckets-app -- "$@" ;;
+esac

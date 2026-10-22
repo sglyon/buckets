@@ -1,0 +1,108 @@
+{
+  "id": "ai",
+  "name": "Workspace AI",
+  "protocol_version": 1,
+  "executable": "node",
+  "args": [
+    "src/plugin.ts"
+  ],
+  "capabilities": [
+    "commands",
+    "agent"
+  ],
+  "permissions": {
+    "read_roots": [
+      "/"
+    ],
+    "network": true,
+    "write": false
+  },
+  "timeout_ms": 300000,
+  "config": {
+    "provider": "openai",
+    "model": "",
+    "api_key_env": "OPENAI_API_KEY",
+    "base_url": "",
+    "embedding_endpoint": "",
+    "embedding_model": "",
+    "embedding_api_key_env": "",
+    "index_roots": [],
+    "max_files": 128,
+    "max_file_bytes": 16384,
+    "search_limit": 30,
+    "search_plugin": ""
+  },
+  "settings_fields": [
+    {
+      "key": "provider",
+      "title": "Model provider",
+      "kind": "select",
+      "options": [
+        "openai",
+        "anthropic",
+        "compatible"
+      ]
+    },
+    {
+      "key": "model",
+      "title": "Model ID",
+      "kind": "text",
+      "description": "Explicit provider model ID; no default model or credential is selected."
+    },
+    {
+      "key": "api_key_env",
+      "title": "API key environment variable",
+      "kind": "text",
+      "description": "Variable name only; never paste a key here. Empty supports a keyless compatible endpoint."
+    },
+    {
+      "key": "base_url",
+      "title": "Model base URL",
+      "kind": "text",
+      "description": "Optional for built-in providers; required for a compatible endpoint."
+    },
+    {
+      "key": "embedding_endpoint",
+      "title": "Embeddings URL",
+      "kind": "text",
+      "description": "Complete OpenAI-compatible embeddings endpoint, including /embeddings."
+    },
+    {
+      "key": "embedding_model",
+      "title": "Embedding model",
+      "kind": "text"
+    },
+    {
+      "key": "embedding_api_key_env",
+      "title": "Embedding key environment variable",
+      "kind": "text"
+    },
+    {
+      "key": "max_files",
+      "title": "Maximum indexed files",
+      "kind": "number",
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "key": "max_file_bytes",
+      "title": "Indexed bytes per file",
+      "kind": "number",
+      "min": 1024,
+      "max": 65536
+    },
+    {
+      "key": "search_limit",
+      "title": "Search result limit",
+      "kind": "number",
+      "min": 1,
+      "max": 100
+    },
+    {
+      "key": "search_plugin",
+      "title": "Alternative hybrid search plugin",
+      "kind": "text",
+      "description": "Optional installed search plugin ID; uses its model/store settings instead of the built-in vector cache."
+    }
+  ]
+}

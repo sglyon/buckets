@@ -1,0 +1,11 @@
+[package]
+name = "buckets-plugin-rust-example"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+buckets-plugin = { path = "../../../crates/buckets-plugin" }
+serde_json = "1"
+anyhow = "1"

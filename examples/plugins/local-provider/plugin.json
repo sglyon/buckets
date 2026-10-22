@@ -1,0 +1,11 @@
+{
+  "id": "local-provider",
+  "name": "Read-only local provider example",
+  "protocol_version": 1,
+  "executable": "python3",
+  "args": ["provider.py"],
+  "capabilities": ["provider"],
+  "permissions": { "read_roots": ["../../.."], "network": false, "write": false },
+  "timeout_ms": 5000,
+  "config": { "root": "../../.." }
+}
