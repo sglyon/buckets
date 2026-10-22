@@ -28,3 +28,7 @@ jobs:
         run: cargo test -p buckets-app --test ai_end_to_end -- --ignored
         env:
           BUCKETS_AI_E2E_PLUGIN_DIR: ${{ runner.temp }}/buckets-ai-ci/plugins
+      - name: Verify installed ChatGPT sign-in
+        run: cargo test -p buckets-app --test siwc_installed_end_to_end -- --ignored
+        env:
+          BUCKETS_AI_E2E_PLUGIN_DIR: ${{ runner.temp }}/buckets-ai-ci/plugins
