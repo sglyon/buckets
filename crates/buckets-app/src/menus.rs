@@ -4,6 +4,24 @@ use gpui_component::input;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub enum MenuCommand {
+    Operations,
+    SaveWorkspace,
+    ReloadWorkspaces,
+    GrowPane,
+    ShrinkPane,
+    EqualPanes,
+    SortName,
+    SortSize,
+    SortModified,
+    SortType,
+    SortDescending,
+    DirectoriesFirst,
+    ColumnSize,
+    ColumnModified,
+    ColumnType,
+    LayoutHorizontal,
+    LayoutVertical,
+
     About,
     Open,
     NewFile,
@@ -91,6 +109,24 @@ pub fn install(cx: &mut App) {
 /// native Edit menu actions; editor and terminal contexts remain independent.
 pub fn binding(id: &str, key: &str, context: Option<&str>) -> Option<KeyBinding> {
     let command = match id {
+        "view.operations" => MenuCommand::Operations,
+        "workspace.save" => MenuCommand::SaveWorkspace,
+        "workspace.reload" => MenuCommand::ReloadWorkspaces,
+        "pane.grow" => MenuCommand::GrowPane,
+        "pane.shrink" => MenuCommand::ShrinkPane,
+        "pane.equalize" => MenuCommand::EqualPanes,
+        "pane.sort_name" => MenuCommand::SortName,
+        "pane.sort_size" => MenuCommand::SortSize,
+        "pane.sort_modified" => MenuCommand::SortModified,
+        "pane.sort_type" => MenuCommand::SortType,
+        "pane.sort_reverse" => MenuCommand::SortDescending,
+        "pane.directories_first" => MenuCommand::DirectoriesFirst,
+        "pane.column_size" => MenuCommand::ColumnSize,
+        "pane.column_modified" => MenuCommand::ColumnModified,
+        "pane.column_type" => MenuCommand::ColumnType,
+        "pane.layout_horizontal" => MenuCommand::LayoutHorizontal,
+        "pane.layout_vertical" => MenuCommand::LayoutVertical,
+
         "app.quit" => return Some(KeyBinding::new(key, crate::Quit, context)),
         "app.settings" => return Some(KeyBinding::new(key, crate::OpenSettings, context)),
         "pane.next" => return Some(KeyBinding::new(key, crate::NextPane, context)),
@@ -187,6 +223,7 @@ fn build(state: MenuState) -> Vec<Menu> {
                 item("Move to Directory…", MenuCommand::MoveTo, mutable_selection),
                 item("Move to Trash…", MenuCommand::Delete, mutable_selection),
                 separator(),
+                item("Operations and Recovery…", MenuCommand::Operations, true),
                 item("Close Pane", MenuCommand::Close, true),
             ],
         },
@@ -257,6 +294,37 @@ fn build(state: MenuState) -> Vec<Menu> {
             items: vec![
                 item("Minimize", MenuCommand::Minimize, true),
                 item("Zoom", MenuCommand::ZoomWindow, true),
+                separator(),
+                item(
+                    "Save Named Workspace…",
+                    MenuCommand::SaveWorkspace,
+                    state.workspace_actions,
+                ),
+                item(
+                    "Arrange Side by Side",
+                    MenuCommand::LayoutHorizontal,
+                    state.workspace_actions,
+                ),
+                item(
+                    "Arrange Top to Bottom",
+                    MenuCommand::LayoutVertical,
+                    state.workspace_actions,
+                ),
+                item(
+                    "Grow Active Pane",
+                    MenuCommand::GrowPane,
+                    state.workspace_actions,
+                ),
+                item(
+                    "Shrink Active Pane",
+                    MenuCommand::ShrinkPane,
+                    state.workspace_actions,
+                ),
+                item(
+                    "Equalize Pane Sizes",
+                    MenuCommand::EqualPanes,
+                    state.workspace_actions,
+                ),
                 separator(),
                 item("Split Pane", MenuCommand::Split, state.workspace_actions),
                 if state.workspace_actions {

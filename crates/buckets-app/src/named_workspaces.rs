@@ -223,9 +223,10 @@ impl NamedWorkspaceStore {
     pub fn get(&self, id: &str) -> Option<&NamedWorkspace> {
         self.entries().iter().find(|workspace| workspace.id == id)
     }
-    /// Saving an existing name updates that snapshot and retains its record ID.
-    /// The snapshot's workspace identity is distinct from this management ID.
-    pub fn save(&mut self, name: &str, snapshot: WorkspaceSnapshot) -> Result<String> {
+    /// A new name receives its own record-derived agent/notes namespace. Updating
+    /// an existing name preserves its identity; saving never copies notes or
+    /// switches the currently open workspace.
+    pub fn save(&mut self, name: &str, mut snapshot: WorkspaceSnapshot) -> Result<String> {
         let name = name.trim();
         validate_name(name)?;
         snapshot.validate()?;
@@ -236,6 +237,7 @@ impl NamedWorkspaceStore {
             .find(|workspace| workspace.name.to_lowercase() == name.to_lowercase())
         {
             existing.name = name.to_owned();
+            snapshot.workspace_id = existing.snapshot.workspace_id.clone();
             existing.snapshot = snapshot;
             existing.id.clone()
         } else {
@@ -249,6 +251,7 @@ impl NamedWorkspaceStore {
                 std::process::id(),
                 SEQUENCE.fetch_add(1, Ordering::Relaxed)
             );
+            snapshot.workspace_id = format!("workspace-{id}");
             next.workspaces.push(NamedWorkspace {
                 id: id.clone(),
                 name: name.to_owned(),

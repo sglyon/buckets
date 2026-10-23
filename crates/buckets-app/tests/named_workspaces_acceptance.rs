@@ -55,6 +55,9 @@ fn full_provider_identity_and_layout_survive_restart_and_metadata_edits() {
         })
         .collect();
     let id = store.save("  Research  ", value.clone()).unwrap();
+    let source_identity = value.workspace_id.clone();
+    value.workspace_id = store.get(&id).unwrap().snapshot.workspace_id.clone();
+    assert_ne!(value.workspace_id, source_identity);
     assert_eq!(store.entries()[0].name, "Research");
     drop(store);
     let mut restored = NamedWorkspaceStore::load(&path).unwrap();
@@ -66,7 +69,7 @@ fn full_provider_identity_and_layout_survive_restart_and_metadata_edits() {
     assert_eq!(restored.entries().len(), 1);
     assert_eq!(
         restored.get(&id).unwrap().snapshot.workspace_id,
-        "workspace-test-roots"
+        value.workspace_id
     );
     restored.remove(&id).unwrap();
     assert!(
@@ -270,4 +273,42 @@ fn symlink_data_and_lock_paths_are_refused_without_following_them() {
             .to_string_lossy()
             .ends_with(".tmp")
     }));
+}
+
+#[test]
+fn new_names_isolate_notes_namespaces_while_updates_and_rename_retain_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("workspaces.json");
+    let original_notes = dir.path().join("original-session-notes.txt");
+    fs::write(&original_notes, "Keep my original notes").unwrap();
+    let mut store = NamedWorkspaceStore::load(&path).unwrap();
+    let source = snapshot();
+    let teaching = store.save("Teaching", source.clone()).unwrap();
+    let client = store.save("Client", source.clone()).unwrap();
+    let teaching_identity = store.get(&teaching).unwrap().snapshot.workspace_id.clone();
+    let client_identity = store.get(&client).unwrap().snapshot.workspace_id.clone();
+    assert_ne!(teaching_identity, client_identity);
+    assert_ne!(teaching_identity, source.workspace_id);
+    assert_ne!(client_identity, source.workspace_id);
+    assert_eq!(teaching_identity, format!("workspace-{teaching}"));
+    let mut changed = source.clone();
+    changed.workspace_id = "workspace-different-active-session".into();
+    changed.panes[0].weight = 2.;
+    assert_eq!(store.save("teaching", changed).unwrap(), teaching);
+    store.rename(&teaching, "School").unwrap();
+    drop(store);
+    let restored = NamedWorkspaceStore::load(&path).unwrap();
+    assert_eq!(
+        restored.get(&teaching).unwrap().snapshot.workspace_id,
+        teaching_identity
+    );
+    assert_eq!(
+        restored.get(&client).unwrap().snapshot.workspace_id,
+        client_identity
+    );
+    assert_eq!(
+        fs::read_to_string(&original_notes).unwrap(),
+        "Keep my original notes"
+    );
+    assert!(!dir.path().join("agents").exists());
 }

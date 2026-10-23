@@ -28,6 +28,58 @@ macro_rules! action {
 }
 
 pub static ACTIONS: &[ActionSpec] = &[
+    action!(
+        "view.operations",
+        "Show operations and recovery",
+        Global,
+        ["cmd-shift-j"]
+    ),
+    action!("workspace.save", "Save named workspace", Workspace, []),
+    action!("workspace.reload", "Reload named workspaces", Workspace, []),
+    action!("pane.grow", "Grow active pane", Workspace, ["cmd-alt-]"]),
+    action!(
+        "pane.shrink",
+        "Shrink active pane",
+        Workspace,
+        ["cmd-alt-["]
+    ),
+    action!("pane.equalize", "Equalize pane sizes", Workspace, []),
+    action!("pane.sort_name", "Sort pane by name", Files, []),
+    action!("pane.sort_size", "Sort pane by size", Files, []),
+    action!(
+        "pane.sort_modified",
+        "Sort pane by modified date",
+        Files,
+        []
+    ),
+    action!("pane.sort_type", "Sort pane by type", Files, []),
+    action!(
+        "pane.sort_reverse",
+        "Reverse pane sort direction",
+        Files,
+        []
+    ),
+    action!(
+        "pane.directories_first",
+        "Toggle directories first",
+        Files,
+        []
+    ),
+    action!("pane.column_size", "Toggle Size column", Files, []),
+    action!("pane.column_modified", "Toggle Modified column", Files, []),
+    action!("pane.column_type", "Toggle Type column", Files, []),
+    action!(
+        "pane.layout_horizontal",
+        "Arrange panes side by side",
+        Workspace,
+        []
+    ),
+    action!(
+        "pane.layout_vertical",
+        "Arrange panes top to bottom",
+        Workspace,
+        []
+    ),
     action!("pane.split", "Split pane", Workspace, ["cmd-t"]),
     action!(
         "pane.close",

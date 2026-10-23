@@ -7,12 +7,16 @@ mod agent_view;
 mod appearance;
 mod application_icon;
 mod bootstrap;
+mod browser_controls;
 mod clipboard;
 mod font_zoom;
 mod keybindings;
 mod menus;
 mod name_filter;
+mod named_workspaces;
 mod native_drag;
+mod operations_session;
+mod pane_view;
 mod settings;
 mod settings_view;
 mod shortcut_recorder;
@@ -153,6 +157,8 @@ struct Pane {
     generation: u64,
     search: Option<String>,
     scroll: UniformListScrollHandle,
+    view: named_workspaces::PaneView,
+    weight: f32,
 }
 impl Pane {
     fn new(id: u64, location: Location) -> Self {
@@ -178,9 +184,12 @@ impl Pane {
             generation: 0,
             search: None,
             scroll: UniformListScrollHandle::new(),
+            view: Default::default(),
+            weight: 1.,
         }
     }
-    fn replace_entries(&mut self, entries: Vec<Entry>) {
+    fn replace_entries(&mut self, mut entries: Vec<Entry>) {
+        pane_view::sort(&mut entries, &self.view);
         let cursor = self.entries.get(self.cursor).map(|e| e.location.clone());
         let selected = self
             .selected
@@ -313,10 +322,14 @@ enum Prompt {
     Delete,
     Palette,
     BookmarkName(Option<usize>),
+    WorkspaceName(Option<usize>),
+    RemoveWorkspace(usize),
 }
 impl Prompt {
     fn title(self) -> &'static str {
         match self {
+            Self::WorkspaceName(_) => "Save named workspace",
+            Self::RemoveWorkspace(_) => "Remove saved workspace?",
             Self::Location => "Go to location",
             Self::Search => "Search this directory",
             Self::Rename => "Rename",
@@ -331,6 +344,12 @@ impl Prompt {
     }
     fn detail(self) -> &'static str {
         match self {
+            Self::WorkspaceName(_) => {
+                "Save locations and pane layout. Terminal commands and agent requests are never replayed."
+            }
+            Self::RemoveWorkspace(_) => {
+                "Type remove to remove this saved layout. Files remain unchanged."
+            }
             Self::Location => "Local path, ssh://host/path, s3://bucket/prefix or git://…",
             Self::Search => {
                 "Filename search by default. Prefix rg: for contents, fd: or fff: to choose an engine."
@@ -393,6 +412,20 @@ enum Command {
     GoBookmark(usize),
     RenameBookmark(usize),
     RemoveBookmark(usize),
+    Sort(named_workspaces::SortKey),
+    SortDescending,
+    DirectoriesFirst,
+    ToggleColumn(named_workspaces::Column),
+    Layout(named_workspaces::PaneLayout),
+    GrowPane,
+    ShrinkPane,
+    EqualPanes,
+    SaveWorkspace,
+    ReloadWorkspaces,
+    OpenWorkspace(usize),
+    RenameWorkspace(usize),
+    RemoveWorkspace(usize),
+    Operations,
 }
 const COMMANDS: &[(Command, &str, &str)] = &[
     (Command::Location, "Go to location / connect", ""),
@@ -433,9 +466,80 @@ const COMMANDS: &[(Command, &str, &str)] = &[
     (Command::Root, "Go to root", ""),
     (Command::Plugins, "Open plugin directory", ""),
     (Command::ReloadPlugins, "Reload plugins", ""),
+    (Command::Operations, "Show operations and recovery", ""),
+    (Command::SaveWorkspace, "Save named workspace", ""),
+    (Command::ReloadWorkspaces, "Reload named workspaces", ""),
+    (
+        Command::Sort(named_workspaces::SortKey::Name),
+        "Sort pane by name",
+        "",
+    ),
+    (
+        Command::Sort(named_workspaces::SortKey::Size),
+        "Sort pane by size",
+        "",
+    ),
+    (
+        Command::Sort(named_workspaces::SortKey::Modified),
+        "Sort pane by modified date",
+        "",
+    ),
+    (
+        Command::Sort(named_workspaces::SortKey::Type),
+        "Sort pane by type",
+        "",
+    ),
+    (Command::SortDescending, "Reverse pane sort direction", ""),
+    (Command::DirectoriesFirst, "Toggle directories first", ""),
+    (
+        Command::ToggleColumn(named_workspaces::Column::Size),
+        "Toggle Size column",
+        "",
+    ),
+    (
+        Command::ToggleColumn(named_workspaces::Column::Modified),
+        "Toggle Modified column",
+        "",
+    ),
+    (
+        Command::ToggleColumn(named_workspaces::Column::Type),
+        "Toggle Type column",
+        "",
+    ),
+    (
+        Command::Layout(named_workspaces::PaneLayout::Horizontal),
+        "Arrange panes side by side",
+        "",
+    ),
+    (
+        Command::Layout(named_workspaces::PaneLayout::Vertical),
+        "Arrange panes top to bottom",
+        "",
+    ),
+    (Command::GrowPane, "Grow active pane", ""),
+    (Command::ShrinkPane, "Shrink active pane", ""),
+    (Command::EqualPanes, "Equalize pane sizes", ""),
 ];
 fn command_id(command: Command) -> Option<&'static str> {
     match command {
+        Command::Operations => Some("view.operations"),
+        Command::SaveWorkspace => Some("workspace.save"),
+        Command::ReloadWorkspaces => Some("workspace.reload"),
+        Command::GrowPane => Some("pane.grow"),
+        Command::ShrinkPane => Some("pane.shrink"),
+        Command::EqualPanes => Some("pane.equalize"),
+        Command::Sort(named_workspaces::SortKey::Name) => Some("pane.sort_name"),
+        Command::Sort(named_workspaces::SortKey::Size) => Some("pane.sort_size"),
+        Command::Sort(named_workspaces::SortKey::Modified) => Some("pane.sort_modified"),
+        Command::Sort(named_workspaces::SortKey::Type) => Some("pane.sort_type"),
+        Command::SortDescending => Some("pane.sort_reverse"),
+        Command::DirectoriesFirst => Some("pane.directories_first"),
+        Command::ToggleColumn(named_workspaces::Column::Size) => Some("pane.column_size"),
+        Command::ToggleColumn(named_workspaces::Column::Modified) => Some("pane.column_modified"),
+        Command::ToggleColumn(named_workspaces::Column::Type) => Some("pane.column_type"),
+        Command::Layout(named_workspaces::PaneLayout::Horizontal) => Some("pane.layout_horizontal"),
+        Command::Layout(named_workspaces::PaneLayout::Vertical) => Some("pane.layout_vertical"),
+
         Command::Location => Some("location.open"),
         Command::BookmarkCurrent => Some("bookmark.add"),
         Command::OpenBookmarks => Some("bookmark.open"),
@@ -544,6 +648,12 @@ struct Session {
     preview: Option<bool>,
     #[serde(default)]
     font_size: Option<f32>,
+    #[serde(default)]
+    layout: named_workspaces::PaneLayout,
+    #[serde(default)]
+    views: Vec<named_workspaces::PaneView>,
+    #[serde(default)]
+    weights: Vec<f32>,
 }
 enum PluginOutcome {
     Terminal(TerminalSession, PathBuf),
@@ -609,6 +719,10 @@ struct Browser {
     status: String,
     status_error: bool,
     operations: usize,
+    operation_ui: operations_session::OperationUi,
+    named_workspaces: Option<named_workspaces::NamedWorkspaceStore>,
+    pane_layout: named_workspaces::PaneLayout,
+    layout_epoch: u64,
     watcher: Option<watch::LocalWatcher>,
 }
 impl Browser {
@@ -706,6 +820,33 @@ impl Browser {
         if panes.is_empty() {
             panes.push(Pane::new(0, Location::parse("/").expect("root location")));
         }
+        for (index, pane) in panes.iter_mut().enumerate() {
+            pane.view = session
+                .views
+                .get(index)
+                .filter(|view| view.validate().is_ok())
+                .cloned()
+                .unwrap_or_default();
+            pane.weight = session
+                .weights
+                .get(index)
+                .copied()
+                .filter(|v| v.is_finite() && *v > 0. && *v <= 1000.)
+                .unwrap_or(1.);
+        }
+        let named_workspaces = match named_workspaces::NamedWorkspaceStore::load(
+            session_path().with_file_name("workspaces.json"),
+        ) {
+            Ok(store) => Some(store),
+            Err(error) => {
+                let notice = format!("Named workspaces unavailable: {error:#}");
+                settings_warning = Some(
+                    settings_warning
+                        .map_or_else(|| notice.clone(), |warning| format!("{warning} · {notice}")),
+                );
+                None
+            }
+        };
         let font_size = font_zoom::FontSize::from_saved(Some(preferences.font_size));
         theme::apply(&preferences.appearance, font_size.points(), cx);
         if let Some(notice) = theme::font_notice(cx) {
@@ -780,11 +921,18 @@ impl Browser {
                 .unwrap_or_else(|| "Ready · Open commands from the View menu".into()),
             status_error: settings_warning.is_some() || watcher_error.is_some(),
             operations: 0,
+            operation_ui: operations_session::OperationUi::new(
+                session_path().with_file_name("operations"),
+            ),
+            named_workspaces,
+            pane_layout: session.layout,
+            layout_epoch: 0,
             watcher: watcher.ok(),
         };
         for i in 0..this.panes.len() {
             this.reload(i, cx);
         }
+        this.load_operation_history(cx);
         this.discover_plugins(cx);
         this.sync_watches();
         let executor = cx.background_executor().clone();
@@ -860,6 +1008,9 @@ impl Browser {
             sidebar: Some(self.sidebar),
             preview: Some(self.show_preview),
             font_size: Some(self.font_size.points()),
+            layout: self.pane_layout,
+            views: self.panes.iter().map(|pane| pane.view.clone()).collect(),
+            weights: self.panes.iter().map(|pane| pane.weight).collect(),
         };
         if let Ok(data) = serde_json::to_vec_pretty(&session) {
             let _ = std::fs::write(path, data);
@@ -911,6 +1062,7 @@ impl Browser {
                 .is_some_and(|view| view.read(cx).is_recording())
     }
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.operation_ui.open = false;
         if self.recording_shortcut(cx) {
             return;
         }
@@ -1496,7 +1648,12 @@ impl Browser {
         cx.notify();
     }
     fn begin(&mut self, mode: Prompt, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.panes[self.active].is_files() && mode != Prompt::Palette {
+        if !self.panes[self.active].is_files()
+            && !matches!(
+                mode,
+                Prompt::Palette | Prompt::WorkspaceName(_) | Prompt::RemoveWorkspace(_)
+            )
+        {
             self.message("Switch to a file pane to browse or search", false, cx);
             return;
         }
@@ -1541,6 +1698,10 @@ impl Browser {
                         if name.is_empty() { canonical } else { name }
                     })
             }
+            Prompt::WorkspaceName(index) => index
+                .and_then(|i| self.named_workspaces.as_ref()?.entries().get(i))
+                .map(|entry| entry.name.clone())
+                .unwrap_or_default(),
             Prompt::Location => self.panes[self.active].location.display(),
             Prompt::Rename => self.panes[self.active]
                 .entries
@@ -1655,6 +1816,9 @@ impl Browser {
             }
             return;
         }
+        if self.submit_workspace_prompt(mode, &value, window, cx) {
+            return;
+        }
         let chosen = self.panes[self.active].chosen();
         let root = self.panes[self.active].location.clone();
         if mode == Prompt::Palette {
@@ -1686,45 +1850,51 @@ impl Browser {
                     .get(self.panes[self.active].cursor)
                     .map(|entry| entry.location.clone())
                 {
-                    self.operation(
-                        "Rename",
-                        move || {
-                            Backend.rename(&src, &value)?;
-                            Ok(())
-                        },
-                        cx,
-                    );
+                    match src.parent().and_then(|parent| parent.join(&value).ok()) {
+                        Some(destination) => self.execute_plan(
+                            buckets_core::OperationPlan {
+                                label: "Rename".into(),
+                                actions: vec![buckets_core::OperationAction::Move {
+                                    source: src,
+                                    destination,
+                                }],
+                            },
+                            cx,
+                        ),
+                        None => self.message("Invalid rename destination", true, cx),
+                    }
                 }
             }
-            Prompt::NewFolder | Prompt::NewFile => {
-                self.operation(
-                    if mode == Prompt::NewFolder {
-                        "Create folder"
-                    } else {
-                        "Create file"
-                    },
-                    move || {
-                        let dst = root.join(&value)?;
-                        if mode == Prompt::NewFolder {
-                            Backend.create_dir(&dst)
+            Prompt::NewFolder | Prompt::NewFile => match root.join(&value) {
+                Ok(destination) => self.execute_plan(
+                    buckets_core::OperationPlan {
+                        label: if mode == Prompt::NewFolder {
+                            "Create folder"
                         } else {
-                            Backend.create_file(&dst)
+                            "Create file"
                         }
+                        .into(),
+                        actions: vec![if mode == Prompt::NewFolder {
+                            buckets_core::OperationAction::CreateDirectory { destination }
+                        } else {
+                            buckets_core::OperationAction::CreateFile { destination }
+                        }],
                     },
                     cx,
-                );
-            }
+                ),
+                Err(error) => self.message(format!("Invalid destination: {error:#}"), true, cx),
+            },
             Prompt::CopyTo | Prompt::MoveTo => match Location::parse(&value) {
                 Ok(dst) => self.transfer(chosen, dst, mode == Prompt::MoveTo, cx),
                 Err(e) => self.message(format!("Invalid destination: {e:#}"), true, cx),
             },
-            Prompt::Delete => self.operation(
-                "Trash",
-                move || {
-                    for src in chosen {
-                        Backend.trash(&src)?;
-                    }
-                    Ok(())
+            Prompt::Delete => self.execute_plan(
+                buckets_core::OperationPlan {
+                    label: "Trash".into(),
+                    actions: chosen
+                        .into_iter()
+                        .map(|source| buckets_core::OperationAction::Trash { source })
+                        .collect(),
                 },
                 cx,
             ),
@@ -1774,22 +1944,33 @@ impl Browser {
             self.message("Select a file first", true, cx);
             return;
         }
-        self.operation(
-            if cut { "Move" } else { "Copy" },
-            move || {
-                for src in sources {
-                    let name = src.name();
-                    let dst = destination.join(&name)?;
-                    if cut {
-                        Backend.move_entry(&src, &dst)?;
-                    } else {
-                        Backend.copy(&src, &dst)?;
+        let actions = sources
+            .into_iter()
+            .map(|source| {
+                let destination = destination.join(&source.name())?;
+                Ok(if cut {
+                    buckets_core::OperationAction::Move {
+                        source,
+                        destination,
                     }
-                }
-                Ok(())
-            },
-            cx,
-        );
+                } else {
+                    buckets_core::OperationAction::Copy {
+                        source,
+                        destination,
+                    }
+                })
+            })
+            .collect::<Result<Vec<_>>>();
+        match actions {
+            Ok(actions) => self.execute_plan(
+                buckets_core::OperationPlan {
+                    label: if cut { "Move" } else { "Copy" }.into(),
+                    actions,
+                },
+                cx,
+            ),
+            Err(error) => self.message(format!("Invalid transfer: {error:#}"), true, cx),
+        }
     }
     fn search(&mut self, text: String, cx: &mut Context<Self>) {
         if text.starts_with("plugin:") {
@@ -1865,6 +2046,21 @@ impl Browser {
         .detach();
     }
     fn command(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        if self.operation_ui.open
+            && !matches!(
+                command,
+                Command::Operations
+                    | Command::Close
+                    | Command::FontIncrease
+                    | Command::FontDecrease
+                    | Command::FontReset
+            )
+        {
+            return;
+        }
+        if self.control_command(command, window, cx) {
+            return;
+        }
         if self.prompt == Some(Prompt::Search)
             && matches!(
                 command,
@@ -1960,13 +2156,22 @@ impl Browser {
                 let location = self.panes[self.active].location.clone();
                 let id = self.next_id;
                 self.next_id += 1;
-                self.panes.insert(self.active + 1, Pane::new(id, location));
+                let mut pane = Pane::new(id, location);
+                pane.view = self.panes[self.active].view.clone();
+                self.panes.insert(self.active + 1, pane);
+                self.layout_epoch += 1;
                 self.active += 1;
                 self.reload(self.active, cx);
                 self.focus_active(window, cx);
                 self.save();
             }
             Command::Close => {
+                if self.operation_ui.open {
+                    self.operation_ui.open = false;
+                    self.focus_active(window, cx);
+                    cx.notify();
+                    return;
+                }
                 if let PaneContent::Agent(view) = &self.panes[self.active].content {
                     self.exit_after_agent = None;
                     view.update(cx, |view, cx| view.request_close(false, window, cx));
@@ -1985,6 +2190,7 @@ impl Browser {
                     self.save();
                 } else if self.panes.len() > 1 {
                     self.panes.remove(self.active);
+                    self.layout_epoch += 1;
                     self.active = self.active.min(self.panes.len() - 1);
                     self.focus_active(window, cx);
                     self.load_preview(cx);
@@ -2145,14 +2351,15 @@ impl Browser {
                 self.transfer(sources, dst, cut, cx);
             }
             Command::Duplicate => {
-                let chosen = self.panes[self.active].chosen();
-                self.operation(
-                    "Duplicate",
-                    move || {
-                        for src in chosen {
-                            Backend.duplicate(&src)?;
-                        }
-                        Ok(())
+                let actions = self.panes[self.active]
+                    .chosen()
+                    .into_iter()
+                    .map(|source| buckets_core::OperationAction::Duplicate { source })
+                    .collect();
+                self.execute_plan(
+                    buckets_core::OperationPlan {
+                        label: "Duplicate".into(),
+                        actions,
                     },
                     cx,
                 );
@@ -2196,6 +2403,20 @@ impl Browser {
                     .update(cx, |input, cx| input.set_value(value, window, cx));
             }
             Command::PluginInvoke(index) => self.invoke_plugin(index, window, cx),
+            Command::Sort(_)
+            | Command::SortDescending
+            | Command::DirectoriesFirst
+            | Command::ToggleColumn(_)
+            | Command::Layout(_)
+            | Command::GrowPane
+            | Command::ShrinkPane
+            | Command::EqualPanes
+            | Command::SaveWorkspace
+            | Command::ReloadWorkspaces
+            | Command::OpenWorkspace(_)
+            | Command::RenameWorkspace(_)
+            | Command::RemoveWorkspace(_)
+            | Command::Operations => unreachable!("handled by control_command"),
             Command::Plugins => {
                 let home = std::env::var("HOME").unwrap_or_default();
                 let path = PathBuf::from(home).join(".config/buckets/plugins");
@@ -2385,6 +2606,12 @@ impl Browser {
         true
     }
     fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.operation_ui.running() {
+            self.operation_ui.open = true;
+            self.focus.focus(window);
+            self.message("A file operation is running. Stop it in Operations, wait for its outcome, then quit again.",true,cx);
+            return;
+        }
         if self.recording_shortcut(cx) {
             return;
         }
@@ -2444,6 +2671,12 @@ impl Browser {
                 window.zoom_window();
                 return;
             }
+            M::Close if self.operation_ui.open => {
+                self.operation_ui.open = false;
+                self.focus_active(window, cx);
+                cx.notify();
+                return;
+            }
             M::Close if self.settings_open => {
                 self.exit_after_settings = false;
                 if let Some(view) = &self.settings_view {
@@ -2480,12 +2713,31 @@ impl Browser {
                 return;
             }
             M::Palette => {
+                self.operation_ui.open = false;
                 self.begin(Prompt::Palette, window, cx);
                 return;
             }
             _ => {}
         }
         let command = match action.command {
+            M::Operations => Command::Operations,
+            M::SaveWorkspace => Command::SaveWorkspace,
+            M::ReloadWorkspaces => Command::ReloadWorkspaces,
+            M::GrowPane => Command::GrowPane,
+            M::ShrinkPane => Command::ShrinkPane,
+            M::EqualPanes => Command::EqualPanes,
+            M::SortName => Command::Sort(named_workspaces::SortKey::Name),
+            M::SortSize => Command::Sort(named_workspaces::SortKey::Size),
+            M::SortModified => Command::Sort(named_workspaces::SortKey::Modified),
+            M::SortType => Command::Sort(named_workspaces::SortKey::Type),
+            M::SortDescending => Command::SortDescending,
+            M::DirectoriesFirst => Command::DirectoriesFirst,
+            M::ColumnSize => Command::ToggleColumn(named_workspaces::Column::Size),
+            M::ColumnModified => Command::ToggleColumn(named_workspaces::Column::Modified),
+            M::ColumnType => Command::ToggleColumn(named_workspaces::Column::Type),
+            M::LayoutHorizontal => Command::Layout(named_workspaces::PaneLayout::Horizontal),
+            M::LayoutVertical => Command::Layout(named_workspaces::PaneLayout::Vertical),
+
             M::BookmarkCurrent => Command::BookmarkCurrent,
             M::OpenBookmarks => Command::OpenBookmarks,
             M::NewFile => Command::NewFile,
@@ -2522,7 +2774,14 @@ impl Browser {
         };
         let global = matches!(
             command,
-            Command::FontIncrease
+            Command::Operations
+                | Command::SaveWorkspace
+                | Command::ReloadWorkspaces
+                | Command::GrowPane
+                | Command::ShrinkPane
+                | Command::EqualPanes
+                | Command::Layout(_)
+                | Command::FontIncrease
                 | Command::FontDecrease
                 | Command::FontReset
                 | Command::Sidebar
@@ -2540,6 +2799,10 @@ impl Browser {
         self.command(command, window, cx);
     }
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.operation_ui.open {
+            self.operations_key(event, window, cx);
+            return;
+        }
         let k = &event.keystroke.key;
         let m = event.keystroke.modifiers;
         if self.settings_open
@@ -2951,6 +3214,25 @@ impl Browser {
             .iter()
             .map(|(command, label, _)| (*command, label.to_string(), self.binding_hint(*command)))
             .collect::<Vec<_>>();
+        if let Some(store) = &self.named_workspaces {
+            for (i, workspace) in store.entries().iter().enumerate() {
+                items.push((
+                    Command::OpenWorkspace(i),
+                    format!("Open workspace: {}", workspace.name),
+                    String::new(),
+                ));
+                items.push((
+                    Command::RenameWorkspace(i),
+                    format!("Rename workspace: {}", workspace.name),
+                    String::new(),
+                ));
+                items.push((
+                    Command::RemoveWorkspace(i),
+                    format!("Remove workspace: {}", workspace.name),
+                    String::new(),
+                ));
+            }
+        }
         for (i, bookmark) in self.current_settings().bookmarks.iter().enumerate() {
             items.push((
                 Command::GoBookmark(i),
@@ -3082,7 +3364,7 @@ impl Browser {
         })
         .detach();
     }
-    fn render_pane(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+    fn render_pane(&self, index: usize, width: Pixels, cx: &mut Context<Self>) -> AnyElement {
         let colors = theme::palette(cx);
         let p = &self.panes[index];
         let active = index == self.active;
@@ -3267,6 +3549,11 @@ impl Browser {
                     )
                     .child(key("Tab", cx)),
             );
+        let shown_columns = Arc::new(pane_view::visible_columns(
+            &p.view,
+            f32::from(width) / self.font_size.scale(),
+        ));
+        let row_columns = shown_columns.clone();
         let columns = div()
             .h(ui(28.))
             .flex()
@@ -3276,13 +3563,60 @@ impl Browser {
             .text_color(rgb(colors.muted))
             .border_b_1()
             .border_color(rgb(colors.border))
-            .child(div().flex_1().child(if p.search.is_some() {
-                "SEARCH RESULTS"
-            } else {
-                "NAME"
-            }))
-            .child(div().w(ui(64.)).text_right().child("SIZE"))
-            .child(div().w(ui(72.)).text_right().child("TYPE"));
+            .child(
+                div()
+                    .id(("sort-name", id))
+                    .flex_1()
+                    .cursor_pointer()
+                    .child(if p.search.is_some() {
+                        "SEARCH RESULTS".into()
+                    } else {
+                        self.sort_heading("NAME", named_workspaces::SortKey::Name, index)
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.active = index;
+                        if this.panes[index].view.sort == named_workspaces::SortKey::Name {
+                            this.command(Command::SortDescending, window, cx);
+                        } else {
+                            this.command(
+                                Command::Sort(named_workspaces::SortKey::Name),
+                                window,
+                                cx,
+                            );
+                        }
+                    })),
+            )
+            .children(
+                shown_columns
+                    .iter()
+                    .copied()
+                    .filter(|column| *column != named_workspaces::Column::Name)
+                    .map(|column| {
+                        let (title, key, width) = match column {
+                            named_workspaces::Column::Size => {
+                                ("SIZE", named_workspaces::SortKey::Size, 64.)
+                            }
+                            named_workspaces::Column::Modified => {
+                                ("MODIFIED UTC", named_workspaces::SortKey::Modified, 108.)
+                            }
+                            _ => ("TYPE", named_workspaces::SortKey::Type, 72.),
+                        };
+                        div()
+                            .id(("sort-column", column as usize))
+                            .w(ui(width))
+                            .text_right()
+                            .cursor_pointer()
+                            .child(self.sort_heading(title, key, index))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.active = index;
+                                if this.panes[index].view.sort == key {
+                                    this.command(Command::SortDescending, window, cx);
+                                } else {
+                                    this.command(Command::Sort(key), window, cx);
+                                }
+                            }))
+                    }),
+            );
         let content = if let Some(error) = &p.error {
             div()
                 .flex_1()
@@ -3438,39 +3772,10 @@ impl Browser {
                                             }),
                                     )
                                 })
-                                .child(
-                                    div()
-                                        .w(ui(56.))
-                                        .text_right()
-                                        .text_color(rgb(colors.muted))
-                                        .text_size(ui(11.))
-                                        .child(if e.is_dir {
-                                            String::new()
-                                        } else {
-                                            human_size(e.size)
-                                        }),
-                                )
-                                .child(
-                                    div()
-                                        .w(ui(64.))
-                                        .text_right()
-                                        .text_color(rgb(if selected { colors.success } else { colors.muted }))
-                                        .text_size(ui(10.))
-                                        .child(if selected {
-                                            "MARKED".to_string()
-                                        } else if e.is_dir {
-                                            "DIR".into()
-                                        } else if e.is_symlink {
-                                            "LINK".into()
-                                        } else {
-                                            e.location
-                                                .name()
-                                                .rsplit_once('.')
-                                                .map(|(_, x)| x.to_uppercase())
-                                                .filter(|x| x.len() < 9)
-                                                .unwrap_or_else(|| "FILE".into())
-                                        }),
-                                )
+                                .children(row_columns.iter().copied().filter(|column|*column!=named_workspaces::Column::Name).map(|column|{
+                                    let(width,value)=match column{named_workspaces::Column::Size=>(56.,if e.is_dir{String::new()}else{human_size(e.size)}),named_workspaces::Column::Modified=>(100.,pane_view::modified(e.modified)),_=>(64.,pane_view::extension(&e).to_uppercase())};
+                                    div().w(ui(width)).flex_shrink_0().text_right().truncate().text_color(rgb(colors.muted)).text_size(ui(10.)).child(value)
+                                }))
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(move |this, event: &MouseDownEvent, window, cx| {
@@ -3959,7 +4264,8 @@ impl Browser {
 impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme::palette(cx);
-        let files = !self.settings_open
+        let files = !self.operation_ui.open
+            && !self.settings_open
             && self.prompt.is_none()
             && !self.help
             && !self.quicklook
@@ -3968,7 +4274,8 @@ impl Render for Browser {
             file_actions: files,
             has_selection: !self.panes[self.active].chosen().is_empty(),
             writable: !matches!(self.panes[self.active].location, Location::Git { .. }),
-            workspace_actions: !self.settings_open
+            workspace_actions: !self.operation_ui.open
+                && !self.settings_open
                 && self.prompt.is_none()
                 && !self.help
                 && !self.quicklook,
@@ -4114,9 +4421,14 @@ impl Render for Browser {
                     .text_color(rgb(colors.muted))
                     .child("SSH · S3 · Git"),
             );
-        let panes = (0..self.panes.len())
-            .map(|i| self.render_pane(i, cx))
-            .collect::<Vec<_>>();
+        let panes = self.render_resizable_panes(
+            window,
+            px((f32::from(window.viewport_size().width)
+                - sidebar_width
+                - if show_preview { preview_width } else { 0. })
+            .max(1.)),
+            cx,
+        );
         let preview = div()
             .w(ui(if compact { 260. } else { 300. }))
             .flex_shrink_0()
@@ -4173,7 +4485,9 @@ impl Render for Browser {
             .font_family(theme::ui_font(cx))
             .text_size(ui(12.))
             .track_focus(&self.focus)
-            .key_context(if self.prompt.is_some() {
+            .key_context(if self.operation_ui.open {
+                "BucketsOperations"
+            } else if self.prompt.is_some() {
                 "BucketsInput"
             } else if self.help || self.quicklook {
                 "BucketsOverlay"
@@ -4213,7 +4527,7 @@ impl Render for Browser {
             .on_action(cx.listener(|this, _: &OpenSettings, w, cx| this.open_settings(w, cx)))
             .on_action(cx.listener(Self::menu_command))
             .when(
-                self.prompt.is_none() && !self.help && !self.quicklook && !matches!(self.panes[self.active].content,PaneContent::Agent(_)),
+                !self.operation_ui.open && self.prompt.is_none() && !self.help && !self.quicklook && !matches!(self.panes[self.active].content,PaneContent::Agent(_)),
                 |el| {
                     el.on_action(cx.listener(|this, _: &gpui_component::input::Copy, w, cx| {
                         if let PaneContent::Terminal(view) = &this.panes[this.active].content {
@@ -4274,12 +4588,12 @@ impl Render for Browser {
             }))
             .on_action(
                 cx.listener(|this, _: &NextPane, window, cx| {
-                    if this.settings_open || this.prompt.is_some() || this.help || this.quicklook {return;}
+                    if this.operation_ui.open || this.settings_open || this.prompt.is_some() || this.help || this.quicklook {return;}
                     this.command(Command::Next, window, cx)
                 }),
             )
             .on_action(cx.listener(|this, _: &PreviousPane, window, cx| {
-                if this.settings_open || this.prompt.is_some() || this.help || this.quicklook {return;}
+                if this.operation_ui.open || this.settings_open || this.prompt.is_some() || this.help || this.quicklook {return;}
                 this.active = (this.active + this.panes.len() - 1) % this.panes.len();
                 this.focus_active(window, cx);
                 this.load_preview(cx);
@@ -4396,7 +4710,7 @@ impl Render for Browser {
                     .min_h_0()
                     .flex()
                     .when(self.sidebar && !compact, |el| el.child(sidebar))
-                    .child(div().flex_1().min_w_0().flex().children(panes))
+                    .child(div().flex_1().min_w_0().min_h_0().child(panes))
                     .when(show_preview, |el| el.child(preview)),
             )
             .when(self.prompt==Some(Prompt::Search),|el|{
@@ -4432,6 +4746,7 @@ impl Render for Browser {
                                 self.status.clone()
                             }),
                     )
+                    .when(self.operation_ui.has_records() || self.operation_ui.running(),|el|el.child(div().id("operations-status").ml_3().cursor_pointer().text_size(ui(10.)).text_color(rgb(colors.accent)).child("Operations").on_click(cx.listener(|this,_,window,cx|this.command(Command::Operations,window,cx)))))
                     .child(
                         div()
                             .ml_4()
@@ -4504,6 +4819,7 @@ impl Render for Browser {
             .when(self.prompt.is_some_and(|prompt|prompt!=Prompt::Search) || self.help || self.quicklook, |el| {
                 el.child(self.render_overlay(window, cx))
             })
+            .when(self.operation_ui.open, |el|el.child(self.render_operations(window,cx)))
             .into_any_element()
     }
 }
@@ -4689,13 +5005,59 @@ mod filter_projection_tests {
             entry("new.txt"),
             entry("alpha.txt"),
         ]);
-        assert_eq!(p.cursor, 1);
-        assert_eq!(p.selected, [1, 3].into());
+        assert_eq!(p.cursor, 3);
+        assert_eq!(p.selected, [0, 3].into());
         assert_eq!(p.visible_count(), 1);
         p.finish_name_filter(true);
-        assert_eq!(p.cursor, 0);
-        assert_eq!(p.selected, [1, 3].into());
+        assert_eq!(p.cursor, 1);
+        assert_eq!(p.selected, [0, 3].into());
         assert_eq!(p.entries[p.cursor].name, "café.txt");
+    }
+    #[::core::prelude::v1::test]
+    fn sorting_preserves_cursor_marks_and_active_filter_by_location() {
+        let mut p = pane();
+        p.cursor = 2;
+        p.selected = [0, 3].into();
+        let cursor = p.entries[p.cursor].location.clone();
+        let marked = p.chosen();
+        p.view.descending = true;
+        p.replace_entries(p.entries.clone());
+        assert_eq!(p.entries[p.cursor].location, cursor);
+        assert_eq!(
+            p.chosen()
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>(),
+            marked.into_iter().collect()
+        );
+        p.start_name_filter();
+        query(&mut p, "txt");
+        p.view.descending = false;
+        p.replace_entries(p.entries.clone());
+        assert_eq!(p.visible_count(), 3);
+        p.finish_name_filter(true);
+        assert_eq!(p.entries[p.cursor].location, cursor);
+    }
+    #[::core::prelude::v1::test]
+    fn legacy_session_defaults_and_layout_view_weights_round_trip() {
+        let mut session: super::Session =
+            serde_json::from_str(r#"{"locations":["/tmp"],"active":0,"hidden":false}"#).unwrap();
+        assert_eq!(
+            session.layout,
+            super::named_workspaces::PaneLayout::Horizontal
+        );
+        assert!(session.views.is_empty());
+        session.layout = super::named_workspaces::PaneLayout::Vertical;
+        session.weights = vec![3.];
+        session.views = vec![super::named_workspaces::PaneView {
+            sort: super::named_workspaces::SortKey::Modified,
+            descending: true,
+            ..Default::default()
+        }];
+        let saved = serde_json::to_string(&session).unwrap();
+        let restored: super::Session = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.views, session.views);
+        assert_eq!(restored.weights, session.weights);
+        assert_eq!(restored.layout, session.layout);
     }
     #[::core::prelude::v1::test]
     fn projected_mouse_range_never_marks_hidden_entries() {

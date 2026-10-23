@@ -28,7 +28,9 @@ impl Browser {
             let location = pane.location.display();
             budget = budget.saturating_sub(location.len() + 128);
             let mut selected = vec![];
-            for entry in pane.chosen().iter().take(100) {
+            let mut chosen = pane.chosen();
+            chosen.sort_by_cached_key(Location::display);
+            for entry in chosen.iter().take(100) {
                 let value = entry.display();
                 if value.len() + 32 > budget {
                     break;
@@ -36,6 +38,7 @@ impl Browser {
                 budget -= value.len() + 32;
                 selected.push(value);
             }
+            selected.sort();
             let cursor = pane
                 .entries
                 .get(pane.cursor)
@@ -50,7 +53,9 @@ impl Browser {
                 });
             let mut entries = vec![];
             let mut details = vec![];
-            for entry in pane.entries.iter().take(200) {
+            let mut canonical_entries = pane.entries.iter().collect::<Vec<_>>();
+            canonical_entries.sort_by_cached_key(|entry| entry.location.display());
+            for entry in canonical_entries.into_iter().take(200) {
                 let location = entry.location.display();
                 let bytes = location.len() + entry.name.len() + 96;
                 if bytes > budget {
