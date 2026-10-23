@@ -88,7 +88,7 @@ fn cached_paths(
         .collect()
 }
 fn completion_window(index: usize, compact: bool) -> (usize, usize) {
-    let size = if compact { 2 } else { 4 };
+    let size = if compact { 1 } else { 4 };
     (index / size * size, size)
 }
 
@@ -810,7 +810,19 @@ impl Browser {
                     }),
             );
         }
-        panel.child(div().mt_1().text_size(ui(10.)).text_color(rgb(colors.muted)).whitespace_normal().child("Tab Complete (paths in current folder) · ↑↓ Matching history · Enter Run · Esc Return · ! Shell"))
+        let help = if compact {
+            "Tab Complete · ↑↓ History · Enter Run · Esc Return"
+        } else {
+            "Tab Complete (paths in current folder) · ↑↓ Matching history · Enter Run · Esc Return · ! Shell"
+        };
+        panel.child(
+            div()
+                .mt_1()
+                .text_size(ui(10.))
+                .text_color(rgb(colors.muted))
+                .whitespace_normal()
+                .child(help),
+        )
     }
 }
 
@@ -848,7 +860,7 @@ mod tests {
             for index in 0..12 {
                 let (start, len) = completion_window(index, compact);
                 assert!((start..start + len).contains(&index));
-                assert!(len <= 4);
+                assert_eq!(len, if compact { 1 } else { 4 });
             }
         }
     }
