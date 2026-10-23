@@ -1,4 +1,9 @@
 /target
+/.omx/
+.env
+.env.*
+!.env.example
+!.env.sample
 .DS_Store
 .impeccable/review/
 /.venv
