@@ -37,7 +37,11 @@ Local drives, SSH hosts, S3-compatible buckets, and Git trees. Search integrates
 User requested Omarchy-inspired styling and developer joy. Working product name inferred from the folder: Buckets.
 
 ## Evidence on Hand
-A new, empty repository. No existing assets or sample datasets. The application must show real filesystem data.
+The repository contains the native application, renderer-independent core and
+plugin host, embedded terminal, TypeScript SDK, first-party plugins, examples and
+automated fixtures. [Verification](docs/verification.md) records implemented
+behavior and evidence limits; ignored local captures/build outputs are not
+prerequisites for a fresh clone. The application shows real filesystem data.
 
 ## Product Principles
 - UI copy is functional: name actions, locations, state and recovery; no slogans or promotional language.

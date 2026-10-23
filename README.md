@@ -239,11 +239,22 @@ SSH authentication continues to use your SSH configuration and agent. Saved plac
 
 ## Development
 
+Start with [AGENTS.md](AGENTS.md) for repository boundaries, isolated QA and
+contribution commands. Python 3.9+ is needed for bundled tools and Python-backed
+tests. SDK/AI development also needs Node.js 22.19+ and npm (CI uses Node 24).
+
 ```sh
+export CARGO_INCREMENTAL=0
+export CARGO_PROFILE_DEV_DEBUG=0
+export CARGO_PROFILE_TEST_DEBUG=0
 scripts/check
+
+npm ci --ignore-scripts
+npm test
+npm run typecheck
 ```
 
-This checks formatting, runs workspace tests (including real PTY acceptance), checks the native application, and runs Clippy. macOS CI runs the same checks. Build dependencies are pinned in `Cargo.lock`. Real Neovim and Lazygit tests run explicitly as described in the verification notes.
+The Rust script checks formatting, runs workspace tests (including real PTY acceptance), checks the native application, and runs Clippy. npm checks the SDK and AI workspaces, building them first. macOS CI runs these gates plus installed-plugin fixture checks. Keep one default Cargo target cache, and avoid concurrent builds. Dependencies are pinned in `Cargo.lock` and `package-lock.json`. Real Neovim and Lazygit tests run explicitly as described in the verification notes.
 
 | Crate | Responsibility |
 | --- | --- |
@@ -260,4 +271,4 @@ Git status decorations and Neovim, Lazygit, and terminal launch commands are sup
 
 Plugins communicate over newline-delimited JSON-RPC, with a manifest declaring search, provider, command, decoration, or terminal capabilities. A terminal command returns a typed launch request containing the executable, arguments, working directory, and environment; Buckets owns the resulting terminal process. Rust, Python and TypeScript examples live in `examples/plugins`. Plugin executables run with your user account's OS permissions; install code you trust.
 
-A real FFF SDK example is included. It requires its Python dependency and installation in the configured plugin directory; see the plugin guide for setup. To try the repository examples after installing dependencies, launch with `BUCKETS_PLUGIN_DIR="$PWD/examples/plugins" scripts/dev`. The examples initially grant access only to this repository; edit their declared roots for your own projects. The semantic/hybrid search protocol includes indexing roots, ignore behavior, arbitrary model/store configuration, and ranked results. The embedding/indexing implementation is intentionally left to a future plugin.
+A real FFF SDK example is included. It requires its Python dependency and installation in the configured plugin directory; see the plugin guide for setup. To try the repository examples after installing dependencies, launch with `BUCKETS_PLUGIN_DIR="$PWD/examples/plugins" scripts/dev`. The examples initially grant access only to this repository; edit their declared roots for your own projects. The semantic/hybrid search protocol includes indexing roots, ignore behavior, arbitrary model/store configuration, and ranked results. The optional [AI plugin](plugins/ai/README.md) implements on-demand embedding and hybrid indexing; other search plugins can use the same contract.
