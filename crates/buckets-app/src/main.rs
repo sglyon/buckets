@@ -3192,6 +3192,11 @@ impl Browser {
                 }
             }
         }
+        bindings.extend(
+            operations_session::bindings()
+                .into_iter()
+                .map(|binding| binding.with_meta(APP_KEYMAP)),
+        );
         let merged = merged_key_bindings(cx.key_bindings().borrow().bindings(), bindings);
         cx.clear_key_bindings();
         cx.bind_keys(merged);
@@ -4629,6 +4634,30 @@ impl Render for Browser {
                     }
                 }),
             )
+            .capture_action(cx.listener(|this, _: &operations_session::NextControl, _, cx| {
+                if this.operation_ui.open {
+                    this.move_operation_control(true, cx);
+                    cx.stop_propagation();
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &operations_session::PreviousControl, _, cx| {
+                if this.operation_ui.open {
+                    this.move_operation_control(false, cx);
+                    cx.stop_propagation();
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &operations_session::ActivateControl, window, cx| {
+                if this.operation_ui.open {
+                    this.activate_operation_control(window, cx);
+                    cx.stop_propagation();
+                } else {
+                    cx.propagate();
+                }
+            }))
             .capture_key_down(cx.listener(Self::on_key))
             .child(
                 div()
@@ -5094,7 +5123,74 @@ mod filter_projection_tests {
 #[cfg(test)]
 mod keymap_integration_tests {
     use super::{APP_KEYMAP, PluginShortcut, keybindings, menus, merged_key_bindings};
-    use gpui::{AsKeystroke, KeyBinding};
+    use gpui::{AsKeystroke, KeyBinding, KeyContext, Keymap, Keystroke};
+
+    #[::core::prelude::v1::test]
+    fn operations_controls_override_root_focus_keys_only_inside_operations() {
+        let original = [
+            // gpui-component's Root binds these keys at the ancestor context.
+            KeyBinding::new("tab", super::NextPane, Some("Root")),
+            KeyBinding::new("shift-tab", super::PreviousPane, Some("Root")),
+            menus::binding("file.open", "enter", Some("Buckets")).unwrap(),
+            KeyBinding::new(
+                "enter",
+                gpui_component::input::Enter { secondary: false },
+                Some("Input"),
+            ),
+        ];
+        let replacements = || {
+            super::operations_session::bindings()
+                .into_iter()
+                .map(|binding| binding.with_meta(APP_KEYMAP))
+                .collect()
+        };
+        let first = merged_key_bindings(original.iter(), replacements());
+        let rebuilt = merged_key_bindings(first.iter(), replacements());
+        assert_eq!(rebuilt.len(), original.len() + 4);
+        let keymap = Keymap::new(rebuilt);
+        let context = |leaf: &str| {
+            [
+                KeyContext::parse("Root").unwrap(),
+                KeyContext::parse(leaf).unwrap(),
+            ]
+        };
+        for (key, expected) in [
+            (
+                "tab",
+                Box::new(super::operations_session::NextControl) as Box<dyn gpui::Action>,
+            ),
+            (
+                "shift-tab",
+                Box::new(super::operations_session::PreviousControl),
+            ),
+            (
+                "enter",
+                Box::new(super::operations_session::ActivateControl),
+            ),
+            (
+                "space",
+                Box::new(super::operations_session::ActivateControl),
+            ),
+        ] {
+            let stroke = [Keystroke::parse(key).unwrap()];
+            let (matched, pending) =
+                keymap.bindings_for_input(&stroke, &context("BucketsOperations"));
+            assert!(!pending);
+            assert!(
+                matched[0].action().partial_eq(expected.as_ref()),
+                "{key} was captured by an ancestor binding"
+            );
+            for leaf in ["Buckets", "BucketsTerminal", "BucketsAgent", "Input"] {
+                let (matched, _) = keymap.bindings_for_input(&stroke, &context(leaf));
+                assert!(
+                    matched
+                        .iter()
+                        .all(|binding| !binding.action().partial_eq(expected.as_ref())),
+                    "Operations stole {key} from {leaf}"
+                );
+            }
+        }
+    }
 
     #[::core::prelude::v1::test]
     fn replacing_and_disabling_app_bindings_preserves_native_inputs_and_terminal_keys() {

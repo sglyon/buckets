@@ -176,7 +176,14 @@ impl Browser {
         match result {
             Ok(()) => {
                 self.dismiss(window, cx);
-                self.message(if matches!(mode,Prompt::WorkspaceName(None)){"Saved layout. Open it from the palette to use its own workspace notes and agent context."}else if matches!(mode,Prompt::RemoveWorkspace(_)){"Saved layout removed; files are unchanged"}else{"Named workspace renamed"},false,cx);
+                let message = match mode {
+                    Prompt::WorkspaceName(None) => format!("Saved workspace: {}", value.trim()),
+                    Prompt::RemoveWorkspace(_) => {
+                        "Saved layout removed; files are unchanged".into()
+                    }
+                    _ => "Named workspace renamed".into(),
+                };
+                self.message(message, false, cx);
             }
             Err(error) => self.message(format!("Workspace was not saved: {error:#}"), true, cx),
         }

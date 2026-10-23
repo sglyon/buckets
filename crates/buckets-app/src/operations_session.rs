@@ -15,6 +15,20 @@ use std::{
     time::{Duration, Instant},
 };
 
+actions!(
+    operations_panel,
+    [NextControl, PreviousControl, ActivateControl]
+);
+
+pub(crate) fn bindings() -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("tab", NextControl, Some("BucketsOperations")),
+        KeyBinding::new("shift-tab", PreviousControl, Some("BucketsOperations")),
+        KeyBinding::new("enter", ActivateControl, Some("BucketsOperations")),
+        KeyBinding::new("space", ActivateControl, Some("BucketsOperations")),
+    ]
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
     Close,
@@ -221,6 +235,26 @@ impl Browser {
         }
         cx.notify();
     }
+    pub(crate) fn move_operation_control(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let actions = self.operation_ui.actions();
+        let index = actions
+            .iter()
+            .position(|action| *action == self.operation_ui.action)
+            .unwrap_or(0);
+        let delta = if forward { 1 } else { actions.len() - 1 };
+        self.operation_ui.action = actions[(index + delta) % actions.len()];
+        cx.notify();
+    }
+    pub(crate) fn activate_operation_control(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let action = self.operation_ui.action;
+        if self.operation_ui.actions().contains(&action) {
+            self.operation_action(action, window, cx);
+        }
+    }
     pub(crate) fn operations_key(
         &mut self,
         event: &KeyDownEvent,
@@ -234,26 +268,6 @@ impl Browser {
         }
         match key {
             "escape" => self.operation_action(Action::Close, window, cx),
-            "tab" => {
-                let actions = self.operation_ui.actions();
-                let index = actions
-                    .iter()
-                    .position(|action| *action == self.operation_ui.action)
-                    .unwrap_or(0);
-                let delta = if modifiers.shift {
-                    actions.len() - 1
-                } else {
-                    1
-                };
-                self.operation_ui.action = actions[(index + delta) % actions.len()];
-                cx.notify();
-            }
-            "enter" | "space" => {
-                let action = self.operation_ui.action;
-                if self.operation_ui.actions().contains(&action) {
-                    self.operation_action(action, window, cx);
-                }
-            }
             "up" | "down" | "k" | "j" => {
                 let records = &self.operation_ui.records;
                 if !records.is_empty() {
