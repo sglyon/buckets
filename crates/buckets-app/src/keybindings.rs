@@ -97,6 +97,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     action!("app.settings", "Open Settings", Global, ["cmd-,"]),
     action!("app.quit", "Quit Buckets", Global, ["cmd-q"]),
     action!("app.palette", "Open command palette", Workspace, ["cmd-k"]),
+    action!("app.command_line", "Open command line", Files, ["shift-;"]),
     action!("app.help", "Keyboard reference", Files, ["?", "f1"]),
     action!(
         "font.increase",
@@ -188,6 +189,10 @@ pub fn normalize(source: &str) -> Result<String> {
     );
     if key.key == "+" {
         key.key = "=".into();
+        key.modifiers.shift = true;
+    }
+    if key.key == ":" {
+        key.key = ";".into();
         key.modifiers.shift = true;
     }
     Ok(key.unparse())

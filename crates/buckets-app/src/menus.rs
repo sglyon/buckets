@@ -4,6 +4,7 @@ use gpui_component::input;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub enum MenuCommand {
+    CommandLine,
     Operations,
     SaveWorkspace,
     ReloadWorkspaces,
@@ -109,6 +110,7 @@ pub fn install(cx: &mut App) {
 /// native Edit menu actions; editor and terminal contexts remain independent.
 pub fn binding(id: &str, key: &str, context: Option<&str>) -> Option<KeyBinding> {
     let command = match id {
+        "app.command_line" => MenuCommand::CommandLine,
         "view.operations" => MenuCommand::Operations,
         "workspace.save" => MenuCommand::SaveWorkspace,
         "workspace.reload" => MenuCommand::ReloadWorkspaces,
@@ -274,6 +276,7 @@ fn build(state: MenuState) -> Vec<Menu> {
                 item("Go to Location / Connect…", MenuCommand::Location, file),
                 item("Save to Places…", MenuCommand::BookmarkCurrent, file),
                 item("Open Places…", MenuCommand::OpenBookmarks, file),
+                item("Command Line…", MenuCommand::CommandLine, file),
                 separator(),
                 item("Home", MenuCommand::Home, file),
                 item("Desktop", MenuCommand::Desktop, file),

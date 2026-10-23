@@ -9,6 +9,9 @@ mod application_icon;
 mod bootstrap;
 mod browser_controls;
 mod clipboard;
+mod command_line;
+mod command_line_jobs;
+mod command_line_view;
 mod font_zoom;
 mod keybindings;
 mod menus;
@@ -404,6 +407,7 @@ enum Command {
     FontDecrease,
     FontReset,
     Settings,
+    OpenLine,
     Desktop,
     Downloads,
     Workspace,
@@ -462,6 +466,7 @@ const COMMANDS: &[(Command, &str, &str)] = &[
     (Command::FontDecrease, "Decrease text size", ""),
     (Command::FontReset, "Reset text size", ""),
     (Command::Settings, "Open Settings", ""),
+    (Command::OpenLine, "Open command line", ""),
     (Command::Desktop, "Go to Desktop", ""),
     (Command::Downloads, "Go to Downloads", ""),
     (Command::Workspace, "Go to launch directory", ""),
@@ -605,6 +610,7 @@ fn command_id(command: Command) -> Option<&'static str> {
         Command::FontDecrease => Some("font.decrease"),
         Command::FontReset => Some("font.reset"),
         Command::Settings => Some("app.settings"),
+        Command::OpenLine => Some("app.command_line"),
         Command::Desktop => Some("location.desktop"),
         Command::Downloads => Some("location.downloads"),
         Command::Workspace => Some("location.workspace"),
@@ -633,6 +639,7 @@ fn display_bindings(keys: &[String]) -> String {
         .replace("left", "←")
         .replace("up", "↑")
         .replace("down", "↓");
+    let label = label.replace("⇧;", ":");
     if keys.len() > 1 {
         format!("{label} (+{})", keys.len() - 1)
     } else {
@@ -645,10 +652,10 @@ fn display_bindings(keys: &[String]) -> String {
 fn runtime_binding_keys(canonical: &str) -> Vec<String> {
     let mut result = vec![];
     if let Ok(mut stroke) = Keystroke::parse(canonical)
-        && stroke.key == "="
+        && matches!(stroke.key.as_str(), "=" | ";")
         && stroke.modifiers.shift
     {
-        stroke.key = "+".into();
+        stroke.key = if stroke.key == "=" { "+" } else { ":" }.into();
         stroke.modifiers.shift = false;
         result.push(stroke.unparse());
         stroke.modifiers.shift = true;
@@ -691,13 +698,14 @@ struct Session {
 enum PluginOutcome {
     Terminal(TerminalSession, PathBuf),
     Agent(buckets_plugin::AgentLaunchRequest),
-    Value,
+    Value(serde_json::Value),
 }
 struct PluginCommand {
     plugin: String,
     id: String,
     title: String,
     shortcut: Option<String>,
+    descriptor: buckets_plugin::CommandDescriptor,
 }
 #[derive(Action, Clone, PartialEq, Eq, serde::Deserialize)]
 #[action(namespace=buckets,no_json)]
@@ -753,6 +761,7 @@ struct Browser {
     status_error: bool,
     operations: usize,
     operation_ui: operations_session::OperationUi,
+    command_line: command_line_view::CommandLineUi,
     named_workspaces: Option<named_workspaces::NamedWorkspaceStore>,
     pane_layout: named_workspaces::PaneLayout,
     layout_epoch: u64,
@@ -764,8 +773,18 @@ impl Browser {
         focus.focus(window);
         let input = cx.new(|cx| InputState::new(window, cx));
         let sub = cx.subscribe_in(&input, window, |this, _, event, window, cx| match event {
-            InputEvent::PressEnter { .. } => this.submit(window, cx),
+            InputEvent::PressEnter { .. } => {
+                if this.command_line.open {
+                    this.submit_command_line(window, cx);
+                } else {
+                    this.submit(window, cx);
+                }
+            }
             InputEvent::Change => {
+                if this.command_line.open {
+                    this.command_line_changed(cx);
+                    return;
+                }
                 if this.prompt == Some(Prompt::Search) {
                     this.filter_names(cx);
                     return;
@@ -791,6 +810,7 @@ impl Browser {
             }
         });
         let quit = cx.on_app_quit(|this, cx| {
+            this.cancel_command_job();
             this.save();
             for pane in &this.panes {
                 if let PaneContent::Terminal(view) = &pane.content {
@@ -957,6 +977,7 @@ impl Browser {
             operation_ui: operations_session::OperationUi::new(
                 session_path().with_file_name("operations"),
             ),
+            command_line: command_line_view::CommandLineUi::new(),
             named_workspaces,
             pane_layout: session.layout,
             layout_epoch: 0,
@@ -1101,6 +1122,9 @@ impl Browser {
                 .is_some_and(|view| view.read(cx).is_recording())
     }
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.command_line.open {
+            self.close_command_line(true, window, cx);
+        }
         self.operation_ui.open = false;
         if self.recording_shortcut(cx) {
             return;
@@ -1688,6 +1712,9 @@ impl Browser {
         cx.notify();
     }
     fn begin(&mut self, mode: Prompt, window: &mut Window, cx: &mut Context<Self>) {
+        if self.command_line.open {
+            self.close_command_line(true, window, cx);
+        }
         if !self.panes[self.active].is_files()
             && !matches!(
                 mode,
@@ -2086,6 +2113,18 @@ impl Browser {
         .detach();
     }
     fn command(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        if self.command_line.open
+            && !matches!(
+                command,
+                Command::OpenLine
+                    | Command::Close
+                    | Command::FontIncrease
+                    | Command::FontDecrease
+                    | Command::FontReset
+            )
+        {
+            self.close_command_line(true, window, cx);
+        }
         if self.operation_ui.open
             && !matches!(
                 command,
@@ -2138,6 +2177,7 @@ impl Browser {
             return;
         }
         match command {
+            Command::OpenLine => self.open_command_line(window, cx),
             Command::BookmarkCurrent => self.begin(Prompt::BookmarkName(None), window, cx),
             Command::OpenBookmarks => {
                 if self.effective_places().is_empty() {
@@ -2197,6 +2237,10 @@ impl Browser {
                 self.save();
             }
             Command::Close => {
+                if self.command_line.open {
+                    self.close_command_line(true, window, cx);
+                    return;
+                }
                 if self.operation_ui.open {
                     self.operation_ui.open = false;
                     self.focus_active(window, cx);
@@ -2497,7 +2541,7 @@ impl Browser {
                     Ok::<_, anyhow::Error>(PluginOutcome::Terminal(session, cwd))
                 }
                 CommandResult::Agent(intent) => Ok(PluginOutcome::Agent(intent)),
-                CommandResult::Value(_) => Ok(PluginOutcome::Value),
+                CommandResult::Value(value) => Ok(PluginOutcome::Value(value)),
             }
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -2518,63 +2562,21 @@ impl Browser {
                             this.open_agent(plugin_result, title, intent, origin, window, cx)
                         }
                         Ok(PluginOutcome::Terminal(session, cwd)) => {
-                            let Some(origin_index) = this.panes.iter().position(|p| p.id == origin)
-                            else {
-                                return;
-                            };
-                            if this.panes.len() >= 6 {
-                                this.message(
-                                    "Six panes are open. Close one before opening a terminal.",
-                                    true,
-                                    cx,
-                                );
-                                return;
-                            }
-                            let active_id = this.panes[this.active].id;
-                            let focus =
-                                active_id == origin && this.prompt.is_none() && !this.settings_open;
-                            let view = cx.new(|cx| TerminalView::new(session, window, cx));
-                            let appearance = theme::terminal(cx);
-                            view.update(cx, |view, cx| view.set_appearance(appearance, cx));
-                            let mut pane = Pane::new(this.next_id, Location::local(cwd));
-                            this.next_id += 1;
-                            pane.loading = false;
-                            pane.terminal_observation =
-                                Some(cx.observe(&view, |_, _, cx| cx.notify()));
-                            pane.content = PaneContent::Terminal(view);
-                            this.panes.insert(origin_index + 1, pane);
-                            this.active = if focus {
-                                origin_index + 1
-                            } else {
-                                this.panes
-                                    .iter()
-                                    .position(|p| p.id == active_id)
-                                    .unwrap_or(0)
-                            };
-                            this.quicklook = false;
-                            this.help = false;
-                            this.load_preview(cx);
-                            if focus {
-                                this.focus_active(window, cx);
-                            }
-                            this.save();
-                            this.message(
-                                format!(
-                                    "Terminal opened · {} switches panes · {} closes",
-                                    this.binding_hint(Command::Next),
-                                    this.binding_hint(Command::Close)
-                                ),
-                                false,
+                            this.attach_terminal_session(
+                                session,
+                                Location::local(cwd),
+                                origin,
+                                window,
                                 cx,
                             );
                         }
-                        Ok(PluginOutcome::Value) => {
+                        Ok(PluginOutcome::Value(value)) => {
                             for pane in &mut this.panes {
                                 if pane.is_files() {
                                     pane.refresh_pending = true;
                                 }
                             }
-                            this.message("Plugin command complete", false, cx);
+                            this.message(command_line_view::plugin_message(&value), false, cx);
                         }
                         Err(error) => {
                             this.message(format!("Plugin command failed: {error:#}"), true, cx)
@@ -2751,6 +2753,7 @@ impl Browser {
             _ => {}
         }
         let command = match action.command {
+            M::CommandLine => Command::OpenLine,
             M::Operations => Command::Operations,
             M::SaveWorkspace => Command::SaveWorkspace,
             M::ReloadWorkspaces => Command::ReloadWorkspaces,
@@ -2832,6 +2835,9 @@ impl Browser {
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.operation_ui.open {
             self.operations_key(event, window, cx);
+            return;
+        }
+        if self.command_line.open {
             return;
         }
         let k = &event.keystroke.key;
@@ -3015,6 +3021,7 @@ impl Browser {
         cx.stop_propagation();
     }
     fn discover_plugins(&mut self, cx: &mut Context<Self>) {
+        self.cancel_command_job();
         self.account_sessions.clear();
         self.sync_account_views(cx);
         self.clear_private_agents(
@@ -3041,9 +3048,10 @@ impl Browser {
                     for c in registry.commands(&p.id)? {
                         commands.push(PluginCommand {
                             plugin: p.id.clone(),
-                            id: c.id,
+                            id: c.id.clone(),
                             title: format!("{}: {}", p.name, c.title),
-                            shortcut: c.shortcut,
+                            shortcut: c.shortcut.clone(),
+                            descriptor: c,
                         });
                     }
                 }
@@ -3070,6 +3078,7 @@ impl Browser {
                             view.update(cx, |view, cx| view.catalog(settings, plugins, cx));
                         }
                         this.plugin_commands = commands;
+                        this.refresh_command_specs();
                         this.refresh_account_states(cx);
                         this.rebuild_keymap(cx);
                         if let Some(view) = &this.settings_view {
@@ -3225,6 +3234,11 @@ impl Browser {
         }
         bindings.extend(
             operations_session::bindings()
+                .into_iter()
+                .map(|binding| binding.with_meta(APP_KEYMAP)),
+        );
+        bindings.extend(
+            command_line_view::bindings()
                 .into_iter()
                 .map(|binding| binding.with_meta(APP_KEYMAP)),
         );
@@ -4284,7 +4298,8 @@ impl Browser {
 impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme::palette(cx);
-        let files = !self.operation_ui.open
+        let files = !self.command_line.open
+            && !self.operation_ui.open
             && !self.settings_open
             && self.prompt.is_none()
             && !self.help
@@ -4471,7 +4486,9 @@ impl Render for Browser {
             .font_family(theme::ui_font(cx))
             .text_size(ui(12.))
             .track_focus(&self.focus)
-            .key_context(if self.operation_ui.open {
+            .key_context(if self.command_line.open {
+                "BucketsCommandLine"
+            } else if self.operation_ui.open {
                 "BucketsOperations"
             } else if self.prompt.is_some() {
                 "BucketsInput"
@@ -4513,7 +4530,7 @@ impl Render for Browser {
             .on_action(cx.listener(|this, _: &OpenSettings, w, cx| this.open_settings(w, cx)))
             .on_action(cx.listener(Self::menu_command))
             .when(
-                !self.operation_ui.open && self.prompt.is_none() && !self.help && !self.quicklook && !matches!(self.panes[self.active].content,PaneContent::Agent(_)),
+                !self.command_line.open && !self.operation_ui.open && self.prompt.is_none() && !self.help && !self.quicklook && !matches!(self.panes[self.active].content,PaneContent::Agent(_)),
                 |el| {
                     el.on_action(cx.listener(|this, _: &gpui_component::input::Copy, w, cx| {
                         if let PaneContent::Terminal(view) = &this.panes[this.active].content {
@@ -4574,12 +4591,12 @@ impl Render for Browser {
             }))
             .on_action(
                 cx.listener(|this, _: &NextPane, window, cx| {
-                    if this.operation_ui.open || this.settings_open || this.prompt.is_some() || this.help || this.quicklook {return;}
+                    if this.command_line.open || this.operation_ui.open || this.settings_open || this.prompt.is_some() || this.help || this.quicklook {return;}
                     this.command(Command::Next, window, cx)
                 }),
             )
             .on_action(cx.listener(|this, _: &PreviousPane, window, cx| {
-                if this.operation_ui.open || this.settings_open || this.prompt.is_some() || this.help || this.quicklook {return;}
+                if this.command_line.open || this.operation_ui.open || this.settings_open || this.prompt.is_some() || this.help || this.quicklook {return;}
                 this.active = (this.active + this.panes.len() - 1) % this.panes.len();
                 this.focus_active(window, cx);
                 this.load_preview(cx);
@@ -4587,7 +4604,7 @@ impl Render for Browser {
             }))
             .capture_action(
                 cx.listener(|this, _: &gpui_component::input::Escape, window, cx| {
-                    if this.prompt.is_some() {
+                    if this.command_line.open {this.close_command_line(true,window,cx);cx.stop_propagation();} else if this.prompt.is_some() {
                         this.dismiss(window, cx);
                         cx.stop_propagation();
                     } else {
@@ -4596,8 +4613,8 @@ impl Render for Browser {
                 }),
             )
             .capture_action(
-                cx.listener(|this, _: &gpui_component::input::MoveUp, _, cx| {
-                    if this.prompt==Some(Prompt::Search){this.move_cursor(-1,false,cx);cx.stop_propagation();} else if this.prompt == Some(Prompt::Palette) {
+                cx.listener(|this, _: &gpui_component::input::MoveUp, window, cx| {
+                    if this.command_line.open {this.command_history(true,window,cx);cx.stop_propagation();} else if this.prompt==Some(Prompt::Search){this.move_cursor(-1,false,cx);cx.stop_propagation();} else if this.prompt == Some(Prompt::Palette) {
                         this.palette_move(-1, cx);
                         cx.stop_propagation();
                     } else {
@@ -4606,8 +4623,8 @@ impl Render for Browser {
                 }),
             )
             .capture_action(
-                cx.listener(|this, _: &gpui_component::input::MoveDown, _, cx| {
-                    if this.prompt==Some(Prompt::Search){this.move_cursor(1,false,cx);cx.stop_propagation();} else if this.prompt == Some(Prompt::Palette) {
+                cx.listener(|this, _: &gpui_component::input::MoveDown, window, cx| {
+                    if this.command_line.open {this.command_history(false,window,cx);cx.stop_propagation();} else if this.prompt==Some(Prompt::Search){this.move_cursor(1,false,cx);cx.stop_propagation();} else if this.prompt == Some(Prompt::Palette) {
                         this.palette_move(1, cx);
                         cx.stop_propagation();
                     } else {
@@ -4639,6 +4656,15 @@ impl Render for Browser {
                     cx.propagate();
                 }
             }))
+            .capture_action(cx.listener(|this,_:&command_line_view::Complete,window,cx|{if this.command_line.open{this.complete_command_line(false,window,cx);cx.stop_propagation();}else{cx.propagate();}}))
+            .capture_action(cx.listener(|this,_:&command_line_view::CompletePrevious,window,cx|{if this.command_line.open{this.complete_command_line(true,window,cx);cx.stop_propagation();}else{cx.propagate();}}))
+            .capture_action(cx.listener(|this,_:&command_line_view::HistoryPrevious,window,cx|{if this.command_line.open{this.command_history(true,window,cx);cx.stop_propagation();}else{cx.propagate();}}))
+            .capture_action(cx.listener(|this,_:&command_line_view::HistoryNext,window,cx|{if this.command_line.open{this.command_history(false,window,cx);cx.stop_propagation();}else{cx.propagate();}}))
+            .capture_action(cx.listener(|this,_:&command_line_view::Submit,window,cx|{if this.command_line.open{this.submit_command_line(window,cx);cx.stop_propagation();}else{cx.propagate();}}))
+            .capture_action(cx.listener(|this,_:&command_line_view::Dismiss,window,cx|{if this.command_line.open{this.close_command_line(true,window,cx);cx.stop_propagation();}else{cx.propagate();}}))
+            .capture_action(cx.listener(|this,_:&gpui_component::input::Enter,window,cx|{if this.command_line.open{this.submit_command_line(window,cx);cx.stop_propagation();}else{cx.propagate();}}))
+            .capture_action(cx.listener(|this,_:&gpui_component::input::IndentInline,window,cx|{if this.command_line.open{this.complete_command_line(false,window,cx);cx.stop_propagation();}else{cx.propagate();}}))
+            .capture_action(cx.listener(|this,_:&gpui_component::input::OutdentInline,window,cx|{if this.command_line.open{this.complete_command_line(true,window,cx);cx.stop_propagation();}else{cx.propagate();}}))
             .capture_key_down(cx.listener(Self::on_key))
             .child(
                 div()
@@ -4740,7 +4766,7 @@ impl Render for Browser {
                     .border_t_1()
                     .border_color(rgb(colors.border))
                     .bg(rgb(colors.chrome))
-                    .when(self.prompt==Some(Prompt::Search)||matches!(self.panes[self.active].content,PaneContent::Agent(_)),|el|el.hidden())
+                    .when(self.command_line.open||self.prompt==Some(Prompt::Search)||matches!(self.panes[self.active].content,PaneContent::Agent(_)),|el|el.hidden())
                     .child(
                         div()
                             .flex_1()
@@ -4786,7 +4812,7 @@ impl Render for Browser {
                     .border_color(rgb(colors.border))
                     .bg(rgb(colors.chrome))
                     .text_size(ui(11.))
-                    .when(self.prompt==Some(Prompt::Search)||matches!(self.panes[self.active].content,PaneContent::Agent(_)),|el|el.hidden())
+                    .when(self.command_line.open||self.prompt==Some(Prompt::Search)||matches!(self.panes[self.active].content,PaneContent::Agent(_)),|el|el.hidden())
                     .when(self.panes[self.active].is_terminal(), |el| {
                         el.child(hint("Switch pane", self.binding_hint(Command::Next), cx))
                             .child(hint("Commands", self.binding_hint_id("app.palette"), cx))
@@ -4826,6 +4852,7 @@ impl Render for Browser {
                         )
                     }),
             )
+            .when(self.command_line.open,|el|el.child(self.render_command_line(window,cx)))
             .when(self.prompt.is_some_and(|prompt|prompt!=Prompt::Search) || self.help || self.quicklook, |el| {
                 el.child(self.render_overlay(window, cx))
             })
@@ -5308,6 +5335,7 @@ mod keymap_integration_tests {
         for (canonical, native, plugin) in [
             ("cmd-shift-=", "cmd-+", false),
             ("ctrl-shift-=", "ctrl-+", true),
+            ("shift-;", ":", false),
         ] {
             let original = super::runtime_binding_keys(canonical)
                 .into_iter()
@@ -5366,6 +5394,7 @@ mod keymap_integration_tests {
             assert!(disabled.is_empty());
         }
         assert_eq!(super::runtime_binding_keys("cmd-="), ["cmd-="]);
+        assert_eq!(keybindings::normalize(":").unwrap(), "shift-;");
     }
 
     #[::core::prelude::v1::test]
