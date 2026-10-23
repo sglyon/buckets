@@ -66,7 +66,14 @@
         ".impeccable/review/settings-scrollspy-final-compact-shortcuts.jpg",
         ".impeccable/review/settings-scrollspy-final-compact-top.jpg",
         ".impeccable/review/settings-scrollspy-final-desktop-places.jpg",
-        ".impeccable/review/settings-scrollspy-verdict.md"
+        ".impeccable/review/settings-scrollspy-verdict.md",
+        ".impeccable/review/command-line-initial-desktop-plugin-unicode.jpg",
+        ".impeccable/review/command-line-initial-desktop-shell-output.jpg",
+        ".impeccable/review/command-line-initial-desktop-terminal-colon.jpg",
+        ".impeccable/review/command-line-initial-compact-error.jpg",
+        ".impeccable/review/command-line-final-compact-cycle.jpg",
+        ".impeccable/review/command-line-final-desktop-history.jpg",
+        ".impeccable/review/command-line-verdict.md"
       ],
       "unverified": [
         "Screen-reader behavior",
@@ -142,6 +149,18 @@
         "verdict": ".impeccable/review/places-verdict.md",
         "native": "Shared sidebar/palette order; keyboard local navigation; Settings builtin toggle and disk save; saved rename preserving target; relaunch; compact24pt selected controls and palette.",
         "limits": "Offline fixtures; saved/builtin path identity edge cases established by tests. No live providers, IME, VoiceOver, pointer sidebar navigation or complete JSON editing pass."
+      },
+      "commandLineSource": "crates/buckets-app/src/command_line.rs",
+      "commandLineViewSource": "crates/buckets-app/src/command_line_view.rs",
+      "commandLineJobsSource": "crates/buckets-app/src/command_line_jobs.rs",
+      "commandLineVerification": {
+        "date": "2026-10-23",
+        "source": "201f2c0",
+        "buildUuid": "3D323591-579B-398C-8438-64F2CDD6B511",
+        "status": "pass within typed command line, plugin dispatch and explicit shell pane scope",
+        "verdict": ".impeccable/review/command-line-verdict.md",
+        "native": "Initial 61f43f0/701FEC72: colon entry, quoted path completion/navigation/split, journal rename, pasted Unicode plugin argv, pending plugin Escape, local POSIX pipeline/PTY output, raw terminal colon and Ctrl-C, completion/history cycles and mode recovery. Final compact-density confirmation: one full file row, one selected candidate and readable input/help at 24pt; desktop restart restored persisted history.",
+        "limits": "Static captures establish states; root interactions establish events. Owned offline fixtures only. No live SSH/S3, actual nvim/lazygit UI, external iTerm2, login-shell configuration, IME, VoiceOver, full plugin matrix or latency benchmark. Initial CUA selection delays are transport facts, not app performance."
       },
       "settingsSectionsSource": "crates/buckets-app/src/settings_sections.rs",
       "settingsSectionsVerification": {

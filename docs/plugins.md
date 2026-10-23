@@ -292,8 +292,10 @@ be invoked.
 Argument kinds are `text`, `path`, `directory`, and `choice`. `required` defaults
 to false; required arguments precede optional ones. Only the final argument may
 be `variadic`. Choice arguments require nonempty unique `choices`; other kinds
-omit them. Path/directory hints let the host offer provider-aware completion;
-choices are static literal candidates. No per-key plugin RPC is used. Static
+omit them. Path/directory hints let the host complete cached current-directory
+entries; nested directory prefixes are entered manually in this version.
+Completion requires the caret at the input's end. Choices are static literal
+candidates. No per-key plugin RPC is used. Static
 `locations` restrict provider support to `local`, `ssh`, `s3`, `git` or `plugin`;
 omitted/empty accepts every provider. This does not probe network reachability
 or executable presence.

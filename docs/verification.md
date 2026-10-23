@@ -608,6 +608,81 @@ fixture configuration and evidence were retained. Exact hashes, signature
 result and bounded cleanup record: `target/settings-scrollspy-delivery.json`.
 No new dependency or separate Cargo target cache was introduced.
 
+## Application command line — 2026-10-23
+
+Protocol checkpoint `61bc996` adds optional typed command-line contributions;
+UI/model checkpoint `61f43f0` adds the bottom `:` area, literal argument parsing,
+frozen context, command discovery/completion, bounded history and explicit `:!`
+PTY execution. Only split/cd/rename/settings are core verbs; developer tools
+remain plugins with qualified names and explicit iTerm2 alternatives.
+Completion uses static choices and cached current-directory entries at the
+input's end. It does not fetch nested directory prefixes or issue per-key plugin
+RPCs. History recall matches the draft anywhere in saved text, ignoring case.
+Shell effects bypass the operation journal and Undo; stopping a process cannot
+roll back effects already made.
+
+**87 focused app executions passed**: 40 app/bootstrap, 10 command model,
+11 keybinding, 15 settings and 11 recorder. The plugin gate passed 26 executions
+(5 command contracts, 7 developer tools, 10 runtime, 4 terminal); one existing
+opt-in real FFF test remained ignored because its separate installed environment
+is required. The latest native-tools URI regression rerun passed all 7 developer
+tool executions. SDK build/typecheck and all 11 SDK tests passed. Strict app and
+plugin/all-target Clippy, formatting and diff checks passed. Shared module
+executions repeat across targets and are not distinct end-user workflows. Logs:
+`target/command-line-{app-tests,plugin-tests,native-tools-tests,app-clippy,plugin-clippy}.log`.
+
+The initial native batch used `61f43f0`, arm64 UUID
+`701FEC72-9831-3671-92D6-052EA27D935B`, with owned local/offline fixtures. Root
+observed actual colon entry; quoted cached path completion, cd and split;
+rename through the normal journal with preserved file bytes; literal spaced
+Unicode plugin argv using clipboard paste; pending slow-plugin Escape
+cancellation; POSIX pipeline output and exit status; colon delivered as raw
+`RAW=:` input to a live PTY; and Control-C interruption of a separate running
+shell. Repeated history Up/Up/Down restored the draft, Tab/Tab/Shift-Tab cycled
+candidates, unknown commands retained errors, Settings kept colon in its input,
+and slash filtering retained separate ownership. Initial automated typeText
+entry lost an accent; subsequent paste preserved exact Unicode. The cause was
+not established, and this pass does not certify IME behavior.
+
+The only native defect was density at 960×640/24pt: two default completion rows
+left roughly eight pixels of the file list. One consolidated repair,
+`201f2c0`, limits compact completion to one visible candidate and shortens help.
+Its 40 app + 10 model executions and strict app/all-target Clippy passed.
+The single final confirmation on UUID
+`3D323591-579B-398C-8438-64F2CDD6B511` showed a complete file row and part of the
+next, readable context/input/help and the selected candidate following forward
+and backward Tab. After a full desktop restart, Up restored the last persisted
+`settings` command. No further source or native round was requested.
+
+Native verdict: `.impeccable/review/command-line-verdict.md`; six selected
+`command-line-` proofs retain four initial states (`desktop-plugin-unicode`,
+`desktop-shell-output`, `desktop-terminal-colon`, `compact-error`) and two final
+states (`compact-cycle`, `desktop-history`), each with the appropriate
+`initial-`/`final-` prefix and `.jpg` suffix. The detailed ledger and provenance
+for 28 source captures are in
+`target/command-line-native-qa/{native-verification.md,capture-provenance.json}`.
+Failed resize attempts that retained desktop dimensions are explicitly excluded
+from compact evidence. Actual compact captures are 1920×1346 pixels for the
+960×640-point/24pt fixture. Screenshots establish states; root's recorded
+interactions establish event behavior. Initial CUA bridge selections stalled
+5293.4 and 374.8 seconds beyond nominal tool timeouts; those are transport
+observations, not app startup or performance measurements.
+
+Direct final fixture checks preserved settings/bookmarks, plugin hashes and empty
+credentials. History retained ten accepted commands and excluded cancelled
+preparation, unknown commands and scratch drafts; the renamed file retained its
+27 bytes. Both owned QA apps quit. No live SSH/S3, actual Neovim/Lazygit UI,
+external iTerm2, login-shell configuration, IME, VoiceOver, complete plugin matrix
+or latency benchmark is certified. SSH shell planning is tested offline and
+requires a POSIX-compatible remote shell.
+
+The delivered `target/debug/Buckets.app` and raw binary share final UUID
+`3D323591-579B-398C-8438-64F2CDD6B511`; strict deep ad-hoc signature verification
+passed. Only the two new QA app copies and nine gate-named test executables were
+removed, totaling 222,094,636 logical bytes. The main bundle/raw binary, shared
+dependency cache, older QA copies, fixture configuration/plugins and evidence
+were retained. Exact hashes/signature/cleanup: `target/command-line-delivery.json`.
+
 ## Limits of this evidence
 
 - Outgoing cross-application dragging is implemented using native AppKit file dragging, but remains unverified by automation. Bounded CUA attempts did not deliver an outside-window movement that triggered native export; no conclusion about the native export session follows from those attempts. Internal pane dragging and Finder clipboard interoperability were verified. Inbound cross-application drops also require a direct manual pass. These gaps must not be described as verified drag/drop coverage.
@@ -643,9 +718,9 @@ Use the isolated `target/ui-fixture` directories when performing mutations:
 
 ## Current delivery
 
-`target/debug/Buckets.app` is the delivered locally ad-hoc-signed macOS bundle, including the embedded PTY terminal, JSON-backed Settings, live appearance tokens and font choices, configurable application/plugin shortcuts with key recording, native menus, configurable Places with saved full-location bookmarks, inline filename filtering, guarded operation recovery, sortable/resizable panes and named workspaces. Split defaults to Command-T. The developer-tools plugin requests embedded shell, Neovim and Lazygit panes by default and retains explicit iTerm2 alternatives. `scripts/dev` starts the source build; `scripts/bundle-macos` reproduces the bundle.
+`target/debug/Buckets.app` is the delivered locally ad-hoc-signed macOS bundle, including the embedded PTY terminal, JSON-backed Settings, live appearance tokens and font choices, configurable application/plugin shortcuts with key recording, native menus, configurable Places with saved full-location bookmarks, inline filename filtering, the typed `:` command line and explicit `:!` shell panes, guarded operation recovery, sortable/resizable panes and named workspaces. Split defaults to Command-T. The developer-tools plugin requests embedded shell, Neovim and Lazygit panes by default and retains explicit iTerm2 alternatives. `scripts/dev` starts the source build; `scripts/bundle-macos` reproduces the bundle.
 
-The final bundle passed `codesign --verify --deep --strict`. Its arm64 Mach-O UUID matches `target/debug/buckets`, as recorded in `target/delivery-bundle-verification.log`. Native checks above cover the named fixture workflows and captures; they do not certify every TUI, workload, IME or accessibility scenario.
+The final bundle passed `codesign --verify --deep --strict`. Its arm64 Mach-O UUID matches `target/debug/buckets`, as recorded in the latest `target/command-line-delivery.json`. Native checks above cover the named fixture workflows and captures; they do not certify every TUI, workload, IME or accessibility scenario.
 
 The agent host, account service and panes are included in this bundle.
 Workspace AI remains an explicit standalone plugin installation using

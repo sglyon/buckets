@@ -43,6 +43,7 @@ These are the defaults. Change application and plugin shortcuts in **Settings �
 | Ctrl-E / Ctrl-G | Open Neovim / Lazygit through the developer-tools plugin |
 | Option-Enter | Open an embedded terminal at the current directory |
 | / | Live filename filter in the bottom command line |
+| : | Application commands and explicit shell commands in the bottom line |
 | x; Shift-↑ / ↓ | Mark and advance; select a range |
 | ⌘C / ⌘X / ⌘V | Copy / cut / paste files |
 | F2; ⌘D | Rename; duplicate |
@@ -63,6 +64,52 @@ Text sizing applies to the file browser, Quick Look, and embedded terminals, and
 Neovim, Lazygit, and shells run in native terminal panes backed by Alacritty and a real PTY. Terminal panes send ordinary keys directly to the running program. The command palette also includes explicit iTerm2 alternatives; set `terminal_target` to `external` in the developer-tools plugin configuration to use an external terminal for its shortcuts.
 
 In a terminal, ⌘A selects the scrollback, ⌘C copies the selection, and ⌘V pastes. Shift-PageUp / PageDown scroll history outside full-screen TUIs. Closing a terminal stops its process and jobs. Restoring a workspace opens its terminal working directories as file panes; it does not rerun commands.
+
+## Command line
+
+Press `:` while browsing to open the bottom command line. File panes stay
+visible, and the line identifies the pane and directory the command will use.
+Tab / Shift-Tab completes commands, ↑ / ↓ recalls matching history, Enter runs, and
+Escape returns to browsing or cancels a command still being prepared. Terminal
+programs and text editors retain their own colon input.
+
+```text
+:split ../other-project
+:cd "folder with spaces"
+:rename "new name.rs"
+:settings
+:nvim src/main.rs
+:git
+:terminal
+:! printf '%s\n' 'hello world' | cat
+```
+
+`split`, `cd`, `rename` and `settings` are core verbs. Other stable application
+action IDs are also available. Neovim, Lazygit (`git`) and terminal commands
+belong to the developer-tools plugin, including the explicit `nvim-iterm2`,
+`lazygit-iterm2` and `terminal-iterm2` alternatives. Plugin arguments remain
+literal positional values; quote spaces without shell expansion. Qualified
+`plugin:<plugin-id>/<command-id>` names resolve ambiguous aliases. Plugin
+metadata supplies argument hints, static choices and provider availability.
+Completion works at the end of the input; path candidates come from the cached
+current directory listing. Nested prefixes such as `src/` can be typed directly
+but do not trigger another directory listing. History matches the draft anywhere
+in a previous command, ignoring case. Developer-tools commands require a local
+directory.
+
+`:!` explicitly runs shell text in a new embedded terminal pane. Locally it
+uses `/bin/sh -c` in the submitting directory; SSH uses the remote directory
+and requires a POSIX-compatible remote shell. S3, Git revision and plugin
+locations cannot launch shell commands. Relative navigation stays within the
+active provider; local `~` expands to home, while remote `~` asks for an absolute
+remote path. Once a terminal is running, it has its own close/process lifetime.
+Shell commands run outside the file-operation journal and its Undo controls;
+stopping a process does not roll back changes it already made.
+
+History keeps up to 100 accepted submissions in
+`~/.config/buckets/command-history.json` (or `$BUCKETS_CONFIG_DIR/command-history.json`).
+Drafts, completion previews and cancelled input are not saved. History never
+replays a command on restart.
 
 ## Pane controls and saved workspaces
 

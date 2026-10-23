@@ -228,6 +228,43 @@ as file panes; commands, environments and model requests are never replayed.
 Live terminal panes require explicit closure before switching. Credentials,
 accounts, theme and keybindings retain their separate stores.
 
+## Application command line
+
+`command_line.rs` owns one-line parsing, command-name resolution, provider-aware
+path planning, explicit shell plans and bounded history persistence. It does not
+render, perform completion I/O or invoke a plugin. `command_line_view.rs` adapts
+those values to existing Browser commands and operation confirmation/journal
+paths; `command_line_jobs.rs` owns cancellable plugin/PTY orchestration and
+guarded result attachment. The existing stable action catalog remains
+available, with split/cd/rename/settings as convenient argument-bearing verbs.
+Arguments use quoting/escaping without environment expansion or evaluation.
+
+Plugin command descriptors may add static names/aliases, argument types, choices
+and supported location schemes. Qualified `plugin:<plugin>/<command>` identities
+remain unambiguous; built-in names win and conflicting aliases require the
+qualified name. Discovery occurs outside the keystroke path. Host-owned
+completion consumes static choices and the submitting pane's cached listing;
+there is no nested-directory fetch or per-key plugin RPC. Completion replaces
+the final argument only with the caret at the end. History recall matches the
+draft anywhere in saved text, ignoring case. Command dispatch freezes the submitting pane/location and
+selection, passes literal `user_args`, validates schema/permissions, and discards
+cancelled/stale asynchronous results. Existing legacy commands and terminal/agent
+host actions retain their protocol and checks.
+
+Only explicit `:!` text enters a shell: local `/bin/sh -c`, or quoted remote
+directory setup followed by the source in a POSIX-compatible SSH remote shell.
+Host/directory values remain separate from shell source; unsupported providers
+fail honestly. Preparation runs off the UI thread. A created PTY has its own
+lifetime, and plugin cancellation cannot undo an external effect already made.
+Arbitrary shell effects bypass the host operation journal and its Undo receipts;
+stopping a shell process does not roll back those effects.
+
+`command-history.json` beside workspace/settings state stores accepted text,
+never drafts or automatic replay. It holds at most 100 entries, 4096 bytes per
+line and 256 KiB overall. Private atomic writes use a persistent process lock
+and original-byte checks; invalid, nonregular, symlinked or externally changed
+state is refused. History errors do not prevent opening the command line.
+
 ## Places navigation
 
 `places.rs` projects one ordered navigation list from the existing `bookmarks`

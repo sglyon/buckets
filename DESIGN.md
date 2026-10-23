@@ -351,6 +351,24 @@ Slash opens a bottom command line with the file panes visible and undimmed. Plai
 
 The same line accepts `fd:`, `rg:` and `fff:` for explicit broader searches on Enter and labels that state as Search instead of presenting it as a live current-directory filter. Terminal panes retain their own slash input. At the compact 24-point maximum, the toolbar removes secondary action labels, and the filter command line temporarily replaces the global status and shortcut strips so the panes retain a visible result row.
 
+## Application command line
+
+Colon opens a bottom command area while file panes remain visible and undimmed.
+Use the existing chrome, accent border, native input, muted descriptions and
+textual errors. A context line identifies the frozen submitting pane/location;
+bounded suggestions expose names, usage and provider restrictions. The bottom
+area replaces ordinary status/hints and must preserve usable file space at
+960×640/24pt. Completion and history replace input without executing it.
+
+Tab / Shift-Tab chooses completions, Up / Down recalls accepted submissions,
+Enter submits and Escape returns or cancels preparation. The colon belongs to
+file browsing; terminals, editors, Settings and shortcut capture retain input
+ownership. Core verbs are split, cd, rename and settings; plugin tools use the
+same registration and invocation boundary as existing shortcuts/palette actions.
+Explicit `:!` shell text is distinct from literal application/plugin argv.
+Preparation, errors and cancellation remain visible in context. The host must
+reject stale/cancelled results before creating panes or changing focus.
+
 ## Operation history and workspace controls
 
 `operations_session.rs` renders Operations as an on-demand full surface, with a
@@ -397,3 +415,13 @@ manual scrollspy independent of focus, and desktop heading alignment. Initial
 evidence separately covers global cross-section search, recorder cancellation
 and dirty JSON recovery. See `docs/verification.md` for build attribution and
 the limits of this bounded pass.
+
+The command-line refinement received one initial desktop13pt/compact24pt native
+batch and one compact-density repair/confirmation. Final source `201f2c0`, UUID
+`3D323591-579B-398C-8438-64F2CDD6B511`, keeps one compact candidate and short
+help so a complete file row remains visible. Initial event evidence covers
+literal argv, operation dispatch, local shell output/interruption, terminal colon
+ownership, cycling, history and mode recovery; final confirmation covers compact
+visibility/cycling and persisted history after restart. Exact build attribution,
+tool transport limits and untested scenarios are in `docs/verification.md` and
+`.impeccable/review/command-line-verdict.md`.
