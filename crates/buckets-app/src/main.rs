@@ -17,6 +17,7 @@ mod named_workspaces;
 mod native_drag;
 mod operations_session;
 mod pane_view;
+mod places;
 mod settings;
 mod settings_view;
 mod shortcut_recorder;
@@ -339,7 +340,7 @@ impl Prompt {
             Self::MoveTo => "Move to directory",
             Self::Delete => "Move selected items to Trash?",
             Self::Palette => "Run a command",
-            Self::BookmarkName(_) => "Name this bookmark",
+            Self::BookmarkName(_) => "Name this place",
         }
     }
     fn detail(self) -> &'static str {
@@ -409,7 +410,7 @@ enum Command {
     PluginLocation(usize),
     BookmarkCurrent,
     OpenBookmarks,
-    GoBookmark(usize),
+    GoPlace(usize),
     RenameBookmark(usize),
     RemoveBookmark(usize),
     Sort(named_workspaces::SortKey),
@@ -429,8 +430,8 @@ enum Command {
 }
 const COMMANDS: &[(Command, &str, &str)] = &[
     (Command::Location, "Go to location / connect", ""),
-    (Command::BookmarkCurrent, "Bookmark this location", ""),
-    (Command::OpenBookmarks, "Open bookmarks", ""),
+    (Command::BookmarkCurrent, "Save to Places", ""),
+    (Command::OpenBookmarks, "Open Places", ""),
     (Command::Search, "Filter names / search files", ""),
     (Command::Split, "Split pane", ""),
     (Command::Close, "Close pane", ""),
@@ -462,7 +463,7 @@ const COMMANDS: &[(Command, &str, &str)] = &[
     (Command::Settings, "Open Settings", ""),
     (Command::Desktop, "Go to Desktop", ""),
     (Command::Downloads, "Go to Downloads", ""),
-    (Command::Workspace, "Go to workspace", ""),
+    (Command::Workspace, "Go to launch directory", ""),
     (Command::Root, "Go to root", ""),
     (Command::Plugins, "Open plugin directory", ""),
     (Command::ReloadPlugins, "Reload plugins", ""),
@@ -520,6 +521,37 @@ const COMMANDS: &[(Command, &str, &str)] = &[
     (Command::ShrinkPane, "Shrink active pane", ""),
     (Command::EqualPanes, "Equalize pane sizes", ""),
 ];
+fn place_palette_items(places: &[places::Place]) -> Vec<(Command, String, String)> {
+    let mut items = Vec::with_capacity(places.len() * 3);
+    for (i, place) in places.iter().enumerate() {
+        items.push((
+            Command::GoPlace(i),
+            format!("Open place: {} — {}", place.label, place.location.display()),
+            String::new(),
+        ));
+        if let Some(index) = place.bookmark_index {
+            items.push((
+                Command::RenameBookmark(index),
+                format!(
+                    "Rename place: {} — {}",
+                    place.label,
+                    place.location.display()
+                ),
+                String::new(),
+            ));
+            items.push((
+                Command::RemoveBookmark(index),
+                format!(
+                    "Remove place: {} — {}",
+                    place.label,
+                    place.location.display()
+                ),
+                String::new(),
+            ));
+        }
+    }
+    items
+}
 fn command_id(command: Command) -> Option<&'static str> {
     match command {
         Command::Operations => Some("view.operations"),
@@ -1038,6 +1070,12 @@ impl Browser {
                 ..Default::default()
             })
     }
+    fn effective_places(&self) -> Vec<places::Place> {
+        let settings = self.current_settings();
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into()));
+        let launch = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        settings.places.project(&settings.bookmarks, &home, &launch)
+    }
     fn sync_settings_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(view) = &self.settings_view {
             let settings = self.current_settings();
@@ -1173,6 +1211,7 @@ impl Browser {
             settings_view::Change::Hidden(value) => settings.show_hidden = value,
             settings_view::Change::Sidebar(value) => settings.sidebar = value,
             settings_view::Change::Preview(value) => settings.preview = value,
+            settings_view::Change::Place(place) => settings.places.toggle(place),
             settings_view::Change::PluginEnabled(id, enabled) => {
                 settings.plugins.entry(id).or_default().enabled = Some(enabled);
             }
@@ -1748,7 +1787,7 @@ impl Browser {
             value
         };
         if matches!(mode, Prompt::BookmarkName(_)) && value.trim().is_empty() {
-            self.message("Enter a bookmark name before saving", true, cx);
+            self.message("Enter a place name before saving", true, cx);
             return;
         }
         if value.is_empty() && !matches!(mode, Prompt::Palette | Prompt::Search) {
@@ -1782,7 +1821,7 @@ impl Browser {
                     .as_deref()
                     != Some(location.display().as_str())
             {
-                self.message("This bookmark changed while its name prompt was open. Cancel and choose Rename bookmark again.",true,cx);
+                self.message("This place changed while its name prompt was open. Cancel and choose Rename place again.",true,cx);
                 return;
             }
             match settings::Bookmark::new(value, location.display()) {
@@ -1804,7 +1843,7 @@ impl Browser {
                         self.dismiss(window, cx);
                         self.message(
                             format!(
-                                "Bookmark saved · {} → Open bookmarks",
+                                "Saved to Places · {} → Open Places",
                                 self.binding_hint_id("app.palette")
                             ),
                             false,
@@ -1812,7 +1851,7 @@ impl Browser {
                         );
                     }
                 }
-                Err(error) => self.message(format!("Bookmark was not saved: {error:#}"), true, cx),
+                Err(error) => self.message(format!("Place was not saved: {error:#}"), true, cx),
             }
             return;
         }
@@ -2064,7 +2103,7 @@ impl Browser {
         if self.prompt == Some(Prompt::Search)
             && matches!(
                 command,
-                Command::Next | Command::Split | Command::Close | Command::GoBookmark(_)
+                Command::Next | Command::Split | Command::Close | Command::GoPlace(_)
             )
         {
             self.dismiss(window, cx);
@@ -2100,30 +2139,21 @@ impl Browser {
         match command {
             Command::BookmarkCurrent => self.begin(Prompt::BookmarkName(None), window, cx),
             Command::OpenBookmarks => {
-                if self.current_settings().bookmarks.is_empty() {
+                if self.effective_places().is_empty() {
                     self.message(
-                        format!(
-                            "No bookmarks yet · {} saves this location",
-                            self.binding_hint(Command::BookmarkCurrent)
-                        ),
+                        "No places enabled. Save this location or enable built-ins in Settings → Places.",
                         false,
                         cx,
                     );
                 } else {
                     self.begin(Prompt::Palette, window, cx);
-                    self.input.update(cx, |input, cx| {
-                        input.set_value("Open bookmark:", window, cx)
-                    });
+                    self.input
+                        .update(cx, |input, cx| input.set_value("Open place:", window, cx));
                 }
             }
-            Command::GoBookmark(index) => {
-                if let Some(bookmark) = self.current_settings().bookmarks.get(index) {
-                    match Location::parse(&bookmark.location) {
-                        Ok(location) => self.navigate(location, cx),
-                        Err(error) => {
-                            self.message(format!("Invalid bookmark: {error:#}"), true, cx)
-                        }
-                    }
+            Command::GoPlace(index) => {
+                if let Some(place) = self.effective_places().get(index) {
+                    self.navigate(place.location.clone(), cx);
                 }
             }
             Command::RenameBookmark(index) => {
@@ -3238,23 +3268,7 @@ impl Browser {
                 ));
             }
         }
-        for (i, bookmark) in self.current_settings().bookmarks.iter().enumerate() {
-            items.push((
-                Command::GoBookmark(i),
-                format!("Open bookmark: {} — {}", bookmark.name, bookmark.location),
-                String::new(),
-            ));
-            items.push((
-                Command::RenameBookmark(i),
-                format!("Rename bookmark: {} — {}", bookmark.name, bookmark.location),
-                String::new(),
-            ));
-            items.push((
-                Command::RemoveBookmark(i),
-                format!("Remove bookmark: {} — {}", bookmark.name, bookmark.location),
-                String::new(),
-            ));
-        }
+        items.extend(place_palette_items(&self.effective_places()));
         for (i, p) in self.plugins.plugins().iter().enumerate() {
             if self.plugins.is_enabled(&p.id) && p.supports(Capability::Provider) {
                 items.push((
@@ -4315,16 +4329,7 @@ impl Render for Browser {
                 / self.panes.len() as f32
                 >= 240. * scale;
         let show_preview = self.show_preview && self.panes[self.active].is_files() && preview_fits;
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-        let places = vec![
-            ("Home", home.clone()),
-            ("Desktop", format!("{home}/Desktop")),
-            ("Downloads", format!("{home}/Downloads")),
-            ("Workspace", cwd.to_string_lossy().into_owned()),
-            ("Root", "/".into()),
-        ];
-        let bookmarks = self.current_settings().bookmarks;
+        let places = self.effective_places();
         let sidebar = div()
             .id("places-sidebar")
             .overflow_y_scroll()
@@ -4344,7 +4349,7 @@ impl Render for Browser {
                     .text_size(ui(11.))
                     .child("PLACES"),
             )
-            .children(places.into_iter().enumerate().map(|(i, (label, path))| {
+            .children(places.into_iter().enumerate().map(|(i, place)| {
                 div()
                     .id(("place", i))
                     .px_4()
@@ -4354,42 +4359,17 @@ impl Render for Browser {
                     .gap_3()
                     .cursor_pointer()
                     .hover(|s| s.bg(rgb(colors.surface)))
-                    .child(icon("folder", colors.muted))
-                    .child(label)
+                    .child(icon(
+                        "folder",
+                        if place.builtin.is_some() {
+                            colors.muted
+                        } else {
+                            colors.directory
+                        },
+                    ))
+                    .child(div().flex_1().min_w_0().truncate().child(place.label))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.prompt == Some(Prompt::Search) {
-                            this.dismiss(window, cx);
-                        }
-                        if let Ok(location) = Location::parse(&path) {
-                            this.navigate(location, cx);
-                        }
-                    }))
-            }))
-            .when(!bookmarks.is_empty(), |el| {
-                el.child(
-                    div()
-                        .px_4()
-                        .pt_5()
-                        .pb_2()
-                        .text_color(rgb(colors.muted))
-                        .text_size(ui(11.))
-                        .child("BOOKMARKS"),
-                )
-            })
-            .children(bookmarks.into_iter().enumerate().map(|(i, bookmark)| {
-                div()
-                    .id(("bookmark", i))
-                    .px_4()
-                    .py_2()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgb(colors.surface)))
-                    .child(icon("folder", colors.directory))
-                    .child(div().flex_1().min_w_0().truncate().child(bookmark.name))
-                    .on_click(cx.listener(move |this, _, w, cx| {
-                        this.command(Command::GoBookmark(i), w, cx)
+                        this.command(Command::GoPlace(i), window, cx)
                     }))
             }))
             .child(div().h(ui(28.)))
@@ -5117,6 +5097,90 @@ mod filter_projection_tests {
         }
         p.finish_name_filter(true);
         assert_eq!(p.selected, [1].into());
+    }
+}
+
+#[cfg(test)]
+mod places_ui_tests {
+    use super::{Command, command_id, keybindings, place_palette_items, places, settings};
+    use std::path::Path;
+
+    #[::core::prelude::v1::test]
+    fn places_palette_opens_the_same_projected_targets_and_manages_only_saved_places() {
+        let bookmarks = [
+            settings::Bookmark::new("Home base", "/Users/example").unwrap(),
+            settings::Bookmark::new("Lab", "ssh://research/srv/data").unwrap(),
+        ];
+        let mut preferences = places::Places::default();
+        let project = |preferences: &places::Places| {
+            preferences.project(
+                &bookmarks,
+                Path::new("/Users/example"),
+                Path::new("/project"),
+            )
+        };
+        for builtins_enabled in [true, false] {
+            if !builtins_enabled {
+                preferences.builtins.clear();
+            }
+            let effective = project(&preferences);
+            let commands = place_palette_items(&effective);
+            let opened = commands
+                .iter()
+                .filter_map(|(command, label, _)| match command {
+                    Command::GoPlace(index) => Some((*index, label)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(opened.len(), effective.len());
+            for (index, label) in opened {
+                let place = &effective[index];
+                assert_eq!(
+                    label,
+                    &format!("Open place: {} — {}", place.label, place.location.display())
+                );
+            }
+            for (saved_index, bookmark) in bookmarks.iter().enumerate() {
+                assert!(commands.iter().any(|(command, label, _)| matches!(command,Command::RenameBookmark(index) if *index==saved_index) && label.starts_with(&format!("Rename place: {}", bookmark.name))));
+                assert!(commands.iter().any(|(command, label, _)| matches!(command,Command::RemoveBookmark(index) if *index==saved_index) && label.starts_with(&format!("Remove place: {}", bookmark.name))));
+            }
+            assert_eq!(commands.len(), effective.len() + bookmarks.len() * 2);
+        }
+        let empty =
+            places::Places::default().project(&[], Path::new("/home"), Path::new("/project"));
+        assert_eq!(place_palette_items(&empty).len(), 5);
+    }
+
+    #[::core::prelude::v1::test]
+    fn places_product_names_keep_existing_shortcut_identifiers_and_overrides() {
+        assert_eq!(command_id(Command::BookmarkCurrent), Some("bookmark.add"));
+        assert_eq!(command_id(Command::OpenBookmarks), Some("bookmark.open"));
+        assert_eq!(command_id(Command::Workspace), Some("location.workspace"));
+        assert_eq!(
+            keybindings::spec("bookmark.add").unwrap().title,
+            "Save to Places"
+        );
+        assert_eq!(
+            keybindings::spec("bookmark.open").unwrap().title,
+            "Open Places"
+        );
+        assert_eq!(
+            keybindings::spec("location.workspace").unwrap().title,
+            "Go to launch directory"
+        );
+        let overrides = [
+            ("bookmark.add".into(), vec!["cmd-alt-b".into()]),
+            ("bookmark.open".into(), vec!["cmd-alt-p".into()]),
+        ]
+        .into();
+        assert_eq!(
+            keybindings::resolved(&overrides, "bookmark.add"),
+            [keybindings::normalize("cmd-alt-b").unwrap()]
+        );
+        assert_eq!(
+            keybindings::resolved(&overrides, "bookmark.open"),
+            [keybindings::normalize("cmd-alt-p").unwrap()]
+        );
     }
 }
 

@@ -16,7 +16,7 @@ const CATEGORY_NAMES: &[&str] = &[
     "All",
     "Appearance",
     "Browsing",
-    "Bookmarks",
+    "Places",
     "Plugins",
     "Shortcuts",
     "Advanced",
@@ -32,6 +32,7 @@ pub enum Change {
     Hidden(bool),
     Sidebar(bool),
     Preview(bool),
+    Place(crate::places::BuiltinPlace),
     PluginEnabled(String, bool),
     PluginField(String, String, Option<Value>),
     Reset,
@@ -71,6 +72,7 @@ enum Action {
     Hidden,
     Sidebar,
     Preview,
+    Place(crate::places::BuiltinPlace),
     PluginEnabled(String),
     Account(String, AccountRequest),
     AccountCancel(String),
@@ -539,16 +541,32 @@ impl SettingsView {
             }
         }
         rows.push(Row{section:"Appearance".into(),title:"Reset fonts and colors".into(),description:"Restore Tokyo Night, bundled fonts and the terminal ANSI palette; keep text size and other preferences.".into(),value:"Reset theme".into(),action:Action::AppearanceReset});
+        for place in crate::places::BuiltinPlace::ALL {
+            rows.push(Row {
+                section: "Places".into(),
+                title: place.label().into(),
+                description: "Include in Places. Direct Go commands stay available.".into(),
+                value: onoff(self.settings.places.builtins.contains(&place)),
+                action: Action::Place(place),
+            });
+        }
+        rows.push(Row {
+            section: "Places".into(),
+            title: "Edit saved locations".into(),
+            description: "Edit saved paths and ordering in settings.json. SSH, S3 and Git locations are supported.".into(),
+            value: "Open JSON".into(),
+            action: Action::Json,
+        });
         for (index, bookmark) in self.settings.bookmarks.iter().enumerate() {
             rows.push(Row {
-                section: "Bookmarks".into(),
+                section: "Places".into(),
                 title: bookmark.name.clone(),
                 description: bookmark.location.clone(),
                 value: "Rename".into(),
                 action: Action::BookmarkRename(index),
             });
             rows.push(Row {
-                section: "Bookmarks".into(),
+                section: "Places".into(),
                 title: format!("Remove {}", bookmark.name),
                 description: "Remove this saved location; its files are kept.".into(),
                 value: "Remove".into(),
@@ -929,6 +947,7 @@ impl SettingsView {
             Action::Preview => cx.emit(SettingsEvent::Change(Change::Preview(
                 !self.settings.preview,
             ))),
+            Action::Place(place) => cx.emit(SettingsEvent::Change(Change::Place(place))),
             Action::BookmarkRename(index) => {
                 if let Some(bookmark) = self.settings.bookmarks.get(index) {
                     self.field_input.update(cx, |input, cx| {
@@ -1704,7 +1723,7 @@ impl Render for SettingsView {
                 .when(rows.is_empty(), |d| {
                     d.child(div().p_6().text_color(rgb(colors.muted)).child(
                         if self.category == 3 && self.search.read(cx).value().is_empty() {
-                            "No bookmarks yet. Save a location from the Go menu or command palette."
+                            "No places match. Save a location from the Go menu or command palette."
                         } else {
                             "No settings match this category and search."
                         },

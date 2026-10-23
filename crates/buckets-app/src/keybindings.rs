@@ -128,7 +128,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         Files,
         ["cmd-alt-l"]
     ),
-    action!("location.workspace", "Go to workspace", Files, []),
+    action!("location.workspace", "Go to launch directory", Files, []),
     action!("location.root", "Go to filesystem root", Files, []),
     action!("file.open", "Open selected file", Files, ["enter"]),
     action!("file.rename", "Rename selected file", Files, ["f2"]),
@@ -158,13 +158,8 @@ pub static ACTIONS: &[ActionSpec] = &[
     action!("file.toggle_hidden", "Toggle hidden files", Files, ["."]),
     action!("view.preview", "Toggle file preview", Files, ["cmd-p"]),
     action!("view.sidebar", "Toggle Places sidebar", Files, ["cmd-b"]),
-    action!(
-        "bookmark.add",
-        "Bookmark this location",
-        Files,
-        ["cmd-shift-b"]
-    ),
-    action!("bookmark.open", "Open bookmarks", Files, []),
+    action!("bookmark.add", "Save to Places", Files, ["cmd-shift-b"]),
+    action!("bookmark.open", "Open Places", Files, []),
     action!("plugin.directory", "Open plugins folder", Files, []),
     action!("plugin.reload", "Reload plugins", Files, []),
 ];

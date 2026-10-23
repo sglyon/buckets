@@ -90,6 +90,7 @@ pub struct Settings {
     pub preview: bool,
     pub plugins: BTreeMap<String, PluginOverrides>,
     pub bookmarks: Vec<Bookmark>,
+    pub places: crate::places::Places,
     pub keybindings: crate::keybindings::Overrides,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -104,6 +105,7 @@ impl Default for Settings {
             preview: true,
             plugins: Default::default(),
             bookmarks: Default::default(),
+            places: Default::default(),
             keybindings: Default::default(),
             extra: Default::default(),
         }
@@ -122,6 +124,7 @@ impl Settings {
     }
     pub fn validate(&self) -> Result<()> {
         self.appearance.validate()?;
+        self.places.validate()?;
         crate::keybindings::validate(&self.keybindings)?;
         ensure!(
             self.font_size.is_finite() && (9.0..=24.0).contains(&self.font_size),

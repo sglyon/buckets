@@ -6,6 +6,9 @@ mod appearance;
 #[path = "../src/keybindings.rs"]
 mod keybindings;
 #[allow(dead_code)]
+#[path = "../src/places.rs"]
+mod places;
+#[allow(dead_code)]
 #[path = "../src/settings.rs"]
 mod settings;
 #[allow(dead_code)]
