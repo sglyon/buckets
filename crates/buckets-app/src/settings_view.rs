@@ -2,6 +2,7 @@
 //! applying it; this view retains an independent JSON draft until explicit save.
 use crate::account_state::AccountPresentation;
 use crate::settings::Settings;
+use crate::settings_sections::{self, Section, SectionRange};
 use crate::shortcut_recorder::{Outcome, Recorder, key_identity};
 use crate::{key, theme, ui};
 use buckets_plugin::{
@@ -12,16 +13,6 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-const CATEGORY_NAMES: &[&str] = &[
-    "All",
-    "Appearance",
-    "Browsing",
-    "Places",
-    "Plugins",
-    "Shortcuts",
-    "Advanced",
-];
-
 #[derive(Clone)]
 pub enum Change {
     AppearanceFont { terminal: bool, value: String },
@@ -93,6 +84,35 @@ struct Row {
     value: String,
     action: Action,
 }
+impl Row {
+    fn identity(&self) -> String {
+        let suffix = match &self.action {
+            Action::Field(plugin, field, _) => format!("{plugin}/{}", field.key),
+            Action::PluginEnabled(plugin) | Action::AccountCancel(plugin) => plugin.clone(),
+            Action::Account(plugin, request) => format!(
+                "{plugin}/{}",
+                serde_json::to_string(request).unwrap_or_default()
+            ),
+            Action::AccountModel(plugin, model) => format!("{plugin}/{model}"),
+            Action::AccountUsage(url) => url.clone(),
+            Action::Shortcut(id) | Action::ShortcutReset(id) => id.clone(),
+            Action::BookmarkRename(index) => format!("rename-place/{index}"),
+            Action::BookmarkRemove(index) => format!("remove-place/{index}"),
+            _ => String::new(),
+        };
+        format!("{}\0{}\0{suffix}", self.section, self.title)
+    }
+}
+fn project_rows(mut rows: Vec<Row>, query: &str) -> Vec<Row> {
+    let query = query.to_lowercase();
+    rows.retain(|row| {
+        format!("{} {} {}", row.section, row.title, row.description)
+            .to_lowercase()
+            .contains(&query)
+    });
+    rows.sort_by_key(|row| Section::from_label(&row.section));
+    rows
+}
 enum Edit {
     AppearanceFont(bool),
     AppearanceColor(String),
@@ -104,6 +124,26 @@ actions!(preferences, [NextControl, PreviousControl, SaveJson]);
 struct Recording {
     id: String,
     input: Recorder,
+}
+
+fn form_control(
+    selected: usize,
+    delta: isize,
+    row_count: usize,
+    ranges: &[SectionRange],
+    chosen: Option<Section>,
+) -> usize {
+    if selected == 1 && delta > 0 {
+        return ranges
+            .iter()
+            .find(|range| Some(range.section) == chosen)
+            .or_else(|| ranges.first())
+            .map_or(row_count + 2, |range| range.first_row + 2);
+    }
+    if delta < 0 && ranges.iter().any(|range| selected == range.first_row + 2) {
+        return 1;
+    }
+    (selected as isize + delta).rem_euclid((row_count + 3) as isize) as usize
 }
 
 pub struct SettingsView {
@@ -131,7 +171,12 @@ pub struct SettingsView {
     json_open: bool,
     editing: Option<Edit>,
     selected: usize,
-    category: usize,
+    nav_section: Option<Section>,
+    active_section: Option<Section>,
+    pending_jump: Option<Section>,
+    selected_row: Option<String>,
+    nav_scroll: ScrollHandle,
+    section_ranges: Vec<SectionRange>,
     scroll: ScrollHandle,
     message: String,
     error: bool,
@@ -171,12 +216,14 @@ impl SettingsView {
         let subscriptions = vec![
             cx.subscribe_in(&search, window, |this, _, event, _, cx| {
                 if matches!(event, InputEvent::Change) {
-                    this.category = 0;
                     this.selected = 0;
-                    this.scroll.scroll_to_item(0);
+                    this.selected_row = None;
+                    this.pending_jump = None;
+                    this.scroll.set_offset(point(px(0.), px(0.)));
                     cx.notify();
                 } else if matches!(event, InputEvent::Focus) {
                     this.selected = 0;
+                    this.selected_row = None;
                     cx.notify();
                 }
             }),
@@ -242,7 +289,12 @@ impl SettingsView {
             json_open: false,
             editing: None,
             selected: 0,
-            category: 0,
+            nav_section: Some(Section::Appearance),
+            active_section: Some(Section::Appearance),
+            pending_jump: None,
+            selected_row: None,
+            nav_scroll: ScrollHandle::new(),
+            section_ranges: vec![],
             scroll: ScrollHandle::new(),
             message: "Changes save immediately. JSON saves only when you choose Save.".into(),
             error: false,
@@ -267,6 +319,7 @@ impl SettingsView {
             self.field_input.focus_handle(cx).focus(window);
         } else {
             self.selected = 0;
+            self.selected_row = None;
             self.search.focus_handle(cx).focus(window);
         }
         cx.notify();
@@ -334,12 +387,21 @@ impl SettingsView {
             .unwrap_or_else(|| plugin.to_owned());
         self.search
             .update(cx, |search, cx| search.set_value(name, window, cx));
-        self.category = 4;
         self.json_open = false;
         self.editing = None;
-        self.selected = 2;
+        self.nav_section = Some(Section::Plugins);
+        self.pending_jump = Some(Section::Plugins);
+        let rows = self.rows(cx);
+        self.selected = rows
+            .iter()
+            .position(|row| row.section == "Plugins")
+            .map_or(1, |index| index + 2);
+        self.selected_row = self
+            .selected
+            .checked_sub(2)
+            .and_then(|index| rows.get(index))
+            .map(Row::identity);
         self.focus.focus(window);
-        self.scroll.scroll_to_item(0);
         cx.notify();
     }
     pub fn shortcuts(
@@ -661,14 +723,7 @@ impl SettingsView {
             Row{section:"Advanced".into(),title:"Reset appearance and browsing".into(),description:"Restore core defaults; keep plugin configuration and other JSON keys.".into(),value:"Reset".into(),action:Action::Reset},
         ]);
         let query = self.search.read(cx).value().to_lowercase();
-        rows.into_iter()
-            .filter(|r| {
-                (self.category == 0 || r.section == CATEGORY_NAMES[self.category])
-                    && format!("{} {} {}", r.section, r.title, r.description)
-                        .to_lowercase()
-                        .contains(&query)
-            })
-            .collect()
+        project_rows(rows, &query)
     }
     fn account_rows(&self, plugin: &PluginManifest, rows: &mut Vec<Row>) {
         let presentation = self.accounts.get(&plugin.id);
@@ -821,14 +876,122 @@ impl SettingsView {
             || matches!(row.action, Action::FontUp) && self.settings.font_size >= 24.
             || matches!(row.action, Action::FontDown) && self.settings.font_size <= 9.
     }
-    fn cycle_category(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        self.category =
-            (self.category as isize + delta).rem_euclid(CATEGORY_NAMES.len() as isize) as usize;
+    fn sections(&self, cx: &App) -> Vec<SectionRange> {
+        let rows = self.rows(cx);
+        settings_sections::ranges(rows.iter().map(|row| row.section.as_str()))
+    }
+    fn leave_field(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.recording.is_some() {
+            self.recorder_focus.focus(window);
+            self.message = "Apply or cancel the shortcut before changing sections.".into();
+            cx.notify();
+            return false;
+        }
+        if self.editing.is_some() {
+            self.commit_field(window, cx);
+            if self.editing.is_some() {
+                self.field_input.focus_handle(cx).focus(window);
+                return false;
+            }
+        }
+        true
+    }
+    fn jump_section(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.leave_field(window, cx)
+            || !self
+                .sections(cx)
+                .iter()
+                .any(|range| range.section == section)
+        {
+            return;
+        }
+        self.nav_section = Some(section);
+        self.pending_jump = Some(section);
         self.selected = 1;
-        self.editing = None;
+        self.selected_row = None;
         self.focus.focus(window);
-        self.scroll.scroll_to_item(0);
         cx.notify();
+    }
+    fn choose_section(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let available = self
+            .sections(cx)
+            .iter()
+            .map(|range| range.section)
+            .collect::<Vec<_>>();
+        self.nav_section = settings_sections::cycle(&available, self.nav_section, delta);
+        if let Some(index) = Section::ALL
+            .iter()
+            .position(|section| Some(*section) == self.nav_section)
+        {
+            self.nav_scroll.scroll_to_item(index);
+        }
+        cx.notify();
+    }
+    fn section_geometry(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
+        let scroll = self.scroll.clone();
+        let ranges = self.section_ranges.clone();
+        let weak = cx.weak_entity();
+        canvas(
+            move |_, window, cx| {
+                let viewport = scroll.bounds();
+                let viewport_height = f32::from(viewport.size.height);
+                if viewport_height <= 0. {
+                    return;
+                }
+                let content_height = viewport_height + f32::from(scroll.max_offset().height);
+                let headings = ranges
+                    .iter()
+                    .filter_map(|range| {
+                        scroll
+                            .bounds_for_item(range.first_row)
+                            .map(|bounds| (range.section, f32::from(bounds.top() - viewport.top())))
+                    })
+                    .collect::<Vec<_>>();
+                let scroll_top = -f32::from(scroll.offset().y);
+                let ranges = ranges.clone();
+                let weak = weak.clone();
+                window.defer(cx, move |_, cx| {
+                    let _ = weak.update(cx, |this, cx| {
+                        if this.section_ranges != ranges
+                            || this.json_open
+                            || this.close_pending
+                            || this.reload_pending
+                            || this.account_confirmation.is_some()
+                        {
+                            return;
+                        }
+                        if let Some(section) = this.pending_jump.take()
+                            && let Some((_, top)) =
+                                headings.iter().find(|(candidate, _)| *candidate == section)
+                        {
+                            this.scroll.set_offset(point(
+                                px(0.),
+                                px(settings_sections::jump_offset(
+                                    *top,
+                                    viewport_height,
+                                    content_height,
+                                )),
+                            ));
+                            cx.notify();
+                            return;
+                        }
+                        let active = settings_sections::active_section(
+                            &headings,
+                            scroll_top,
+                            viewport_height,
+                            content_height,
+                        );
+                        if this.active_section != active {
+                            this.active_section = active;
+                            cx.notify();
+                        }
+                    });
+                });
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
     }
     fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.selected != index {
@@ -863,7 +1026,9 @@ impl SettingsView {
             return;
         }
         if index == 1 {
-            self.cycle_category(1, window, cx);
+            if let Some(section) = self.nav_section {
+                self.jump_section(section, window, cx);
+            }
             return;
         }
         let rows = self.rows(cx);
@@ -871,6 +1036,7 @@ impl SettingsView {
             self.request_close(window, cx);
             return;
         };
+        self.selected_row = Some(row.identity());
         if self.row_disabled(row) {
             self.message = if matches!(row.action, Action::Account(..)) {
                 "An account operation is in progress. Choose Cancel connection to stop it."
@@ -1399,7 +1565,32 @@ impl SettingsView {
         } else {
             self.rows(cx).len() + 3
         };
-        self.selected = (self.selected as isize + delta).rem_euclid(count as isize) as usize;
+        let rows = (!self.json_open
+            && !self.close_pending
+            && !self.reload_pending
+            && self.account_confirmation.is_none())
+        .then(|| self.rows(cx));
+        if let Some(rows) = &rows {
+            let ranges = settings_sections::ranges(rows.iter().map(|row| row.section.as_str()));
+            if self.selected == 0 && delta > 0 {
+                let available = ranges.iter().map(|range| range.section).collect::<Vec<_>>();
+                if !available.contains(&self.nav_section.unwrap_or(Section::Appearance)) {
+                    self.nav_section = self
+                        .active_section
+                        .filter(|section| available.contains(section))
+                        .or_else(|| available.first().copied());
+                }
+            }
+            self.selected =
+                form_control(self.selected, delta, rows.len(), &ranges, self.nav_section);
+            self.selected_row = self
+                .selected
+                .checked_sub(2)
+                .and_then(|index| rows.get(index))
+                .map(Row::identity);
+        } else {
+            self.selected = (self.selected as isize + delta).rem_euclid(count as isize) as usize;
+        }
         self.focus.focus(window);
         if !self.close_pending && !self.reload_pending && self.selected == 0 {
             if self.json_open {
@@ -1464,9 +1655,9 @@ impl SettingsView {
             && !self.close_pending
             && !self.reload_pending
             && self.selected == 1
-            && matches!(k, "left" | "right")
+            && matches!(k, "left" | "right" | "up" | "down")
         {
-            self.cycle_category(if k == "left" { -1 } else { 1 }, window, cx);
+            self.choose_section(if matches!(k, "left" | "up") { -1 } else { 1 }, cx);
             cx.stop_propagation();
             return;
         }
@@ -1526,7 +1717,7 @@ impl SettingsView {
     }
 }
 impl Render for SettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme::palette(cx);
         let font_notice = theme::font_notice(cx);
         let message = font_notice.as_ref().map_or_else(
@@ -1600,6 +1791,27 @@ impl Render for SettingsView {
                 .into_any_element()
         } else {
             let rows = self.rows(cx);
+            let ranges = settings_sections::ranges(rows.iter().map(|row| row.section.as_str()));
+            self.section_ranges = ranges.clone();
+            if let Some(key) = &self.selected_row {
+                if let Some(index) = rows.iter().position(|row| row.identity() == *key) {
+                    self.selected = index + 2;
+                } else {
+                    self.selected = 1;
+                    self.selected_row = None;
+                    if self.editing.take().is_some() {
+                        self.message = "This setting is no longer available. Its unfinished edit was not saved.".into();
+                    }
+                }
+            }
+            let available = ranges.iter().map(|range| range.section).collect::<Vec<_>>();
+            if !self
+                .nav_section
+                .is_some_and(|section| available.contains(&section))
+            {
+                self.nav_section = available.first().copied();
+            }
+            let compact = window.viewport_size().width < px(1100.);
             let mut previous = String::new();
             let body = div()
                 .id("settings-scroll")
@@ -1639,9 +1851,16 @@ impl Render for SettingsView {
                         .child(
                             div()
                                 .flex()
-                                .items_center()
+                                .when(compact, |el| el.flex_col().items_start())
+                                .when(!compact, |el| el.items_center())
                                 .gap_3()
-                                .child(div().flex_1().min_w_0().child(row.title.clone()))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .whitespace_normal()
+                                        .child(row.title.clone()),
+                                )
                                 .child(
                                     div()
                                         .text_color(rgb(if disabled {
@@ -1721,13 +1940,12 @@ impl Render for SettingsView {
                         .child(item)
                 }))
                 .when(rows.is_empty(), |d| {
-                    d.child(div().p_6().text_color(rgb(colors.muted)).child(
-                        if self.category == 3 && self.search.read(cx).value().is_empty() {
-                            "No places match. Save a location from the Go menu or command palette."
-                        } else {
-                            "No settings match this category and search."
-                        },
-                    ))
+                    d.child(
+                        div()
+                            .p_6()
+                            .text_color(rgb(colors.muted))
+                            .child("No settings match this search."),
+                    )
                 })
                 .child(div().mt_4().child(self.button(
                     "settings-close",
@@ -1747,15 +1965,71 @@ impl Render for SettingsView {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(div().flex_1().min_w_0().child(Input::new(&self.search)))
-                        .child(self.button(
-                            "settings-category",
-                            format!("Category: {}", CATEGORY_NAMES[self.category]),
-                            1,
-                            cx,
-                        )),
+                        .child(div().flex_1().min_w_0().child(Input::new(&self.search))),
                 )
-                .child(body)
+                .child(
+                    div()
+                        .relative()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .child(
+                            div()
+                                .id("settings-sections")
+                                .track_scroll(&self.nav_scroll)
+                                .overflow_y_scroll()
+                                .w(px(if compact { 168. } else { 184. }))
+                                .flex_shrink_0()
+                                .px_2()
+                                .py_3()
+                                .border_r_1()
+                                .border_color(rgb(colors.border))
+                                .children(Section::ALL.into_iter().map(|section| {
+                                    let enabled = available.contains(&section);
+                                    let focused =
+                                        self.selected == 1 && self.nav_section == Some(section);
+                                    let active = self.active_section == Some(section);
+                                    div()
+                                        .id(section.label())
+                                        .px_3()
+                                        .py_2()
+                                        .mb_1()
+                                        .border_1()
+                                        .rounded_md()
+                                        .border_color(rgb(if focused {
+                                            colors.accent
+                                        } else {
+                                            colors.chrome
+                                        }))
+                                        .bg(rgb(if active {
+                                            colors.surface
+                                        } else {
+                                            colors.chrome
+                                        }))
+                                        .text_size(ui(11.))
+                                        .text_color(rgb(if !enabled {
+                                            colors.muted
+                                        } else if active {
+                                            colors.accent
+                                        } else {
+                                            colors.text
+                                        }))
+                                        .whitespace_normal()
+                                        .child(section.label())
+                                        .when(enabled, |el| {
+                                            el.cursor_pointer()
+                                                .hover(|style| style.bg(rgb(colors.surface)))
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        this.jump_section(section, window, cx)
+                                                    },
+                                                ))
+                                        })
+                                })),
+                        )
+                        .child(body.min_w_0())
+                        .child(self.section_geometry(cx)),
+                )
                 .into_any_element()
         };
         div()
@@ -1867,5 +2141,117 @@ fn display_value(value: &Value) -> String {
         Value::Null => "Default".into(),
         Value::String(s) => s.clone(),
         _ => value.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod section_control_tests {
+    use super::*;
+
+    fn row(section: Section, title: &str) -> Row {
+        Row {
+            section: section.label().into(),
+            title: title.into(),
+            description: "A setting".into(),
+            value: "On".into(),
+            action: Action::Hidden,
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn global_projection_groups_rows_and_nav_enters_the_chosen_section() {
+        let source = || {
+            vec![
+                row(Section::Appearance, "Font"),
+                row(Section::Browsing, "Hidden files"),
+                row(Section::Appearance, "Color"),
+                row(Section::Plugins, "Native tools"),
+                row(Section::Shortcuts, "Open file"),
+                row(Section::Advanced, "JSON"),
+            ]
+        };
+        let rows = project_rows(source(), "");
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.title.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Font",
+                "Color",
+                "Hidden files",
+                "Native tools",
+                "Open file",
+                "JSON"
+            ]
+        );
+        let ranges = settings_sections::ranges(rows.iter().map(|row| row.section.as_str()));
+        assert_eq!(
+            form_control(0, 1, rows.len(), &ranges, Some(Section::Plugins)),
+            1
+        );
+        assert_eq!(
+            form_control(1, 1, rows.len(), &ranges, Some(Section::Plugins)),
+            5
+        );
+        assert_eq!(rows[5 - 2].title, "Native tools");
+        assert_eq!(
+            form_control(5, -1, rows.len(), &ranges, Some(Section::Plugins)),
+            1
+        );
+        assert_eq!(
+            form_control(5, 1, rows.len(), &ranges, Some(Section::Plugins)),
+            6
+        );
+        let filtered = project_rows(source(), "TOOLS");
+        let ranges = settings_sections::ranges(filtered.iter().map(|row| row.section.as_str()));
+        assert_eq!(
+            form_control(1, 1, filtered.len(), &ranges, Some(Section::Appearance)),
+            2
+        );
+        assert_eq!(filtered[0].title, "Native tools");
+        let empty = project_rows(source(), "no such field");
+        assert_eq!(form_control(1, 1, 0, &[], None), 2);
+        assert!(empty.is_empty());
+        assert_eq!(project_rows(source(), "").len(), rows.len());
+    }
+
+    #[::core::prelude::v1::test]
+    fn dynamic_rows_keep_the_selected_setting_identity_across_insertions() {
+        let chosen = row(Section::Plugins, "Model");
+        let key = chosen.identity();
+        let rows = project_rows(
+            vec![
+                row(Section::Plugins, "Account"),
+                chosen,
+                row(Section::Appearance, "Font"),
+            ],
+            "",
+        );
+        let index = rows.iter().position(|row| row.identity() == key).unwrap();
+        assert_eq!(index, 2);
+        let mut updated = row(Section::Plugins, "Model");
+        updated.value = "Changed".into();
+        updated.description = "A longer wrapped description".into();
+        assert_eq!(updated.identity(), key);
+    }
+
+    #[::core::prelude::v1::test]
+    fn same_name_saved_places_keep_their_own_rename_and_remove_controls() {
+        let mut first = row(Section::Places, "Project");
+        first.description = "ssh://host-a/srv/project".into();
+        first.action = Action::BookmarkRename(0);
+        let mut second = row(Section::Places, "Project");
+        second.description = "ssh://host-b/srv/project".into();
+        second.action = Action::BookmarkRename(1);
+        assert_ne!(first.identity(), second.identity());
+        let chosen = second.identity();
+        let rows = project_rows(vec![first, second], "");
+        assert_eq!(
+            rows.iter().position(|row| row.identity() == chosen),
+            Some(1)
+        );
+        let mut remove = row(Section::Places, "Project");
+        remove.action = Action::BookmarkRemove(1);
+        assert_ne!(remove.identity(), chosen);
     }
 }

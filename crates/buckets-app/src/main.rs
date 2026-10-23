@@ -19,6 +19,7 @@ mod operations_session;
 mod pane_view;
 mod places;
 mod settings;
+mod settings_sections;
 mod settings_view;
 mod shortcut_recorder;
 mod theme;
