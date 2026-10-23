@@ -33,6 +33,8 @@ These are the defaults. Change application and plugin shortcuts in **Settings �
 | Tab / Shift-Tab | Focus next / previous pane |
 | ⌘Option-→ / ← | Focus next / previous pane, including terminals |
 | ⌘T / ⌘W | Split / close pane |
+| ⌘Option-] / [ | Grow / shrink the active pane |
+| ⌘Shift-J | Operations and recovery |
 | ⌘L | Enter a path or connect to a location |
 | ⌘Shift-B | Bookmark the current location |
 | ⌘K | Search and run commands |
@@ -61,6 +63,24 @@ Text sizing applies to the file browser, Quick Look, and embedded terminals, and
 Neovim, Lazygit, and shells run in native terminal panes backed by Alacritty and a real PTY. Terminal panes send ordinary keys directly to the running program. The command palette also includes explicit iTerm2 alternatives; set `terminal_target` to `external` in the developer-tools plugin configuration to use an external terminal for its shortcuts.
 
 In a terminal, ⌘A selects the scrollback, ⌘C copies the selection, and ⌘V pastes. Shift-PageUp / PageDown scroll history outside full-screen TUIs. Closing a terminal stops its process and jobs. Restoring a workspace opens its terminal working directories as file panes; it does not rerun commands.
+
+## Pane controls and saved workspaces
+
+Use the command palette to sort the active pane by name, size, modified date or type, reverse direction, and toggle directories-first. Size, Modified and Type columns are optional; compact panes temporarily hide metadata before crowding filenames. Sorting and refresh preserve the current file and marks.
+
+Drag a divider or use **⌘Option-] / [** to resize the active pane. Palette commands arrange panes side by side or top to bottom and equalize sizes. Orientation, proportions and each pane's view survive relaunch.
+
+Choose **Save named workspace** in the palette, then **Open workspace: NAME** to restore its locations, active pane, layout and view preferences. Rename, Remove and Reload named workspaces are also available there. Removing a saved workspace removes metadata only. Names live in the private `workspaces.json` beside `settings.json`; provider URLs retain SSH hosts, S3 endpoints and Git refs without storing credentials.
+
+Each new saved name receives a separate workspace identity. Saving does not switch context; opening the name selects its own workspace notes and agent context. Existing notes remain with their original workspace. Saved terminals and agents restore as file locations, without rerunning programs or requests. Close running terminal panes and resolve unsaved settings or notes before switching.
+
+## Operations and recovery
+
+Press **⌘Shift-J** or choose **Show operations and recovery** to inspect the bounded operation history. Select a record to see source/destination paths, per-item outcomes, errors and any interrupted staging location. Tab / Shift-Tab selects the available action; Enter activates it. Escape or ⌘W returns to files. Use ↑ / ↓ to select an operation, `[` / `]` to page its item details, and PageUp / PageDown to scroll long details.
+
+Rename, copy, move, duplicate, creation and trash use typed plans recorded before their effects. Local transfers report real byte counts and can stop between chunks; remote actions can stop between items. Retry processes only known unfinished work. Restart marks uncertain work interrupted and never silently replays it.
+
+Undo is guarded local recovery: it refuses changed files or destination collisions and keeps removed outputs recoverable. Remote and cross-filesystem Undo are explicitly unavailable. History retains at most 128 operations and one plan accepts at most 1,024 top-level actions. Journal files live in the private `operations` configuration directory. Interrupted staging files are identified for inspection rather than blindly deleted.
 
 ## Workspace AI
 

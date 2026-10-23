@@ -50,3 +50,21 @@ freeze. Native verification has one batched initial desktop/compact pass and
 at most one confirmation pass after a consolidated repair batch. Keep the
 working app, installed plugin, user configuration and verification records;
 remove disposable build artifacts after final delivery.
+
+## Delivered boundary
+
+Core journal, application orchestration, cached pane projections and named-store
+metadata have separate modules. Default Operations is Command-Shift-J; keyboard
+resizing is Command-Option-] / [. Other new controls use the existing palette.
+History is capped at 128 records, plans at 1,024 top-level actions and named
+workspaces at 64 entries with 1–6 panes. No dependencies were added.
+
+New names receive separate note/agent identities when opened. Saving preserves
+the current identity; existing notes are not implicitly copied. Active mutation,
+live terminal and dirty-draft guards prevent unsafe workspace transitions.
+
+The implementation, independent tests and bounded native desktop/compact pass
+are recorded in [verification](verification.md). Local Undo refuses changed
+files and collisions; remote/cross-filesystem Undo remains unavailable. The
+agent host remains read-only; exposing reviewed mutation plans to agents is a
+separate future workflow.

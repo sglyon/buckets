@@ -424,6 +424,79 @@ and workspace databases were not modified. Evidence:
 `target/streaming-user-plugin-update.log`. Reopen Buckets to load the new app
 and plugin process. Remote CI was updated but not run locally.
 
+## Operations, pane controls and named workspaces — 2026-10-23
+
+The integrated gate on `7bdaf8e` passed **244 top-level test executions**, with
+12 ignored targets and two additional nested subprocess checks. Shared helpers
+run in multiple targets, so this is an execution count rather than 244 distinct
+user scenarios. `scripts/check` completed formatting and app/core/plugin tests,
+then hit sandbox `EPERM` in two terminal process-group cleanup checks. The
+permitted terminal acceptance rerun passed all nine active checks; the remaining
+application check, strict workspace/all-target Clippy and doc tests passed.
+The 12 ignored checks comprise nine installed AI/ChatGPT/streaming targets, one
+real FFF SDK target and two real Neovim/Lazygit targets. Their earlier evidence
+is separate; this Rust-only change did not reinstall or retest JavaScript code.
+
+The native pass found GPUI Root interception of Operations Tab despite passing
+state tests. Repair `f0912bc` adds scoped Tab/Shift-Tab/Enter/Space actions and a
+keymap precedence/rebuild/isolation regression. After repair, **31 app tests plus
+four pane acceptance tests**, formatting and strict app/all-target Clippy passed.
+An independent read-only routing review approved the final dispatch path.
+
+Real-file coverage includes durable reopen/interrupted state, per-item partial
+failure, safe retry, cancellation, changed-file/collision refusal, inverse intent
+and crash recovery, post-publication edits, relative-path refusal and isolated
+trash receipts. Named-store tests exercise bounded schema, full SSH/S3/Git URLs,
+identity isolation, atomic saves, external changes and symlink/conflict refusal.
+No new dependencies were added. The core bounds history and plan size, streams
+local I/O, reuses copy hashes, and holds filesystem work off the UI thread. The
+app caches sort keys/history and coalesces progress. These are implementation
+and test facts; no large-directory latency benchmark is claimed.
+
+Native verification used separate offline fixture/config directories with an
+empty explicit plugin directory: 1440×900 at 13pt and 960×640 at 24pt. The initial
+batch exercised Rename receipts, Size sort/reverse, split and keyboard resize,
+optional Modified, vertical arrangement, and named Save/Open restoring roots,
+views and weights. One consolidated repair and one confirmation followed.
+On the final build, Tab and reverse Tab reached Undo; Enter restored `alpha.rs`
+with its original bytes and Space restored `nested/` at compact 24pt. Both
+renamed destinations disappeared, the journal showed Undone, Command-W returned
+to files, and saved-workspace Open restored its horizontal layout and sort.
+The compact save message fit in full. Owned QA copies quit; the user's normal
+running app and all its configuration/credentials remained untouched.
+
+Final arm64 build UUID: `3F0BF155-5D21-3487-BC2E-44AED19B77A5`. Main executable
+and bundle UUIDs match; deep strict ad-hoc signature verification passed.
+Captures: `.impeccable/review/lifecycle-{operations,undone,workspace,vertical,operations-compact24,panes-compact24}.jpg`.
+The vertical capture belongs to the initial batch; the others are final-build
+confirmation captures. Native verdict: `.impeccable/review/lifecycle-verdict.md`.
+Screenshots prove displayed states; the keyboard/disk observations above supply
+behavior evidence. Pointer divider resizing, live remote providers, actual
+mounted-volume moves, IME and VoiceOver were not exercised in this pass.
+
+Logs: `target/lifecycle-final-workspace-check.log` (preserves the initial sandbox
+failure), `target/lifecycle-terminal-acceptance-permitted.log`,
+`target/lifecycle-final-{app-check,workspace-clippy,doc-tests}.log`,
+`target/lifecycle-desktop-focused-tests.log`, `target/lifecycle-app-clippy.log`,
+`target/lifecycle-confirmation-bundle.log`, and
+`target/delivery-bundle-verification.log`.
+
+Disposable Cargo caches and the two owned lifecycle QA bundles were removed
+after verification, reclaiming **3.23 GiB** from `target` (4.26 GiB → 1.03 GiB).
+The working bundle/raw executable retained their individual SHA-256 hashes and
+the bundle passed deep strict signature verification again. Prior user-adopted
+QA bundles, configurations, credentials, plugins, logs and captures were kept.
+The volume reported approximately 17.6 GiB free afterward. Cleanup record:
+`target/lifecycle-disk-cleanup-2026-10-23.json`. The next source build must
+regenerate these disposable caches; the delivered bundle remains runnable.
+
+Local Undo remains guarded recovery, not a filesystem compare-and-swap promise.
+Remote and cross-filesystem Undo are explicitly unavailable, remote cancellation
+is between items, and uncertain effects cannot be retried automatically.
+Interrupted staging paths stay inspectable rather than being blindly removed.
+Named workspaces restore metadata only; live terminals and unsaved drafts must
+be resolved before switching, and terminal commands/model requests never replay.
+
 ## Limits of this evidence
 
 - Outgoing cross-application dragging is implemented using native AppKit file dragging, but remains unverified by automation. Bounded CUA attempts did not deliver an outside-window movement that triggered native export; no conclusion about the native export session follows from those attempts. Internal pane dragging and Finder clipboard interoperability were verified. Inbound cross-application drops also require a direct manual pass. These gaps must not be described as verified drag/drop coverage.
@@ -459,7 +532,7 @@ Use the isolated `target/ui-fixture` directories when performing mutations:
 
 ## Current delivery
 
-`target/debug/Buckets.app` is the delivered locally ad-hoc-signed macOS bundle, including the embedded PTY terminal, JSON-backed Settings, live appearance tokens and font choices, configurable application/plugin shortcuts with key recording, native menus, saved full-location bookmarks and inline filename filtering. Split defaults to Command-T. The developer-tools plugin requests embedded shell, Neovim and Lazygit panes by default and retains explicit iTerm2 alternatives. `scripts/dev` starts the source build; `scripts/bundle-macos` reproduces the bundle.
+`target/debug/Buckets.app` is the delivered locally ad-hoc-signed macOS bundle, including the embedded PTY terminal, JSON-backed Settings, live appearance tokens and font choices, configurable application/plugin shortcuts with key recording, native menus, saved full-location bookmarks, inline filename filtering, guarded operation recovery, sortable/resizable panes and named workspaces. Split defaults to Command-T. The developer-tools plugin requests embedded shell, Neovim and Lazygit panes by default and retains explicit iTerm2 alternatives. `scripts/dev` starts the source build; `scripts/bundle-macos` reproduces the bundle.
 
 The final bundle passed `codesign --verify --deep --strict`. Its arm64 Mach-O UUID matches `target/debug/buckets`, as recorded in `target/delivery-bundle-verification.log`. Native checks above cover the named fixture workflows and captures; they do not certify every TUI, workload, IME or accessibility scenario.
 

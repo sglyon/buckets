@@ -141,7 +141,7 @@ The workspace body and file names use `body`; native input components use `input
 
 ## Layout
 
-The native window contains a fixed-height toolbar, a flexible workspace, a status line and a shortcut line. The optional places sidebar is 184px wide. Independent file panes split the remaining width equally. The optional preview is 300px wide in the full layout and 260px in compact mode. There are no decorative gutters between panes; hairline borders divide them.
+The native window contains a fixed-height toolbar, a flexible workspace, a status line and a shortcut line. The optional places sidebar is 184px wide. Independent panes use persisted proportions and horizontal or vertical arrangement; equal sizing remains an explicit command. The optional preview is 300px wide in the full layout and 260px in compact mode. There are no decorative gutters between panes; hairline borders divide them.
 
 Pane headers, column headers and rows use the frontmatter dimensions. Paths sit in a 36px region; pane counts sit in a 30px footer. File rows align a 16px authored icon, flexible truncated filename, optional 22px plugin badge, 56px size and 64px type/mark field. Header alignment reserves 64px for size and 72px for type. Compact metadata retains alignment rather than turning into cards.
 
@@ -348,3 +348,34 @@ The macOS menu bar exposes Buckets, File, Edit, View, Go, Window and Help. Menu 
 Slash opens a bottom command line with the file panes visible and undimmed. Plain text fuzzy-filters current entry names as the user types, with a visible result count and short keyboard hints. Arrow keys or Control-N/Control-P move through results, Enter opens the highlighted entry, and Escape restores prior cursor and marks against the latest listing. Canonical file identities remain independent of displayed indices, including after watcher refreshes.
 
 The same line accepts `fd:`, `rg:` and `fff:` for explicit broader searches on Enter and labels that state as Search instead of presenting it as a live current-directory filter. Terminal panes retain their own slash input. At the compact 24-point maximum, the toolbar removes secondary action labels, and the filter command line temporarily replaces the global status and shortcut strips so the panes retain a visible result row.
+
+## Operation history and workspace controls
+
+`operations_session.rs` renders Operations as an on-demand full surface, with a
+quiet status entry during normal browsing, and owns worker orchestration.
+`browser_controls.rs` integrates pane and named-workspace commands; `pane_view.rs`
+owns cached sort projections; `named_workspaces.rs` owns saved metadata. This follows the source boundary in
+[workspace lifecycle](docs/workspace-lifecycle.md).
+
+Operations show actual counts/bytes, state words, per-item source/destination
+paths and errors. Available Stop, Retry or Undo controls come from the selected
+record's capability. Long details scroll, per-item pages are bounded, and
+unsupported recovery explains its reason. Tab / Shift-Tab and activation use
+explicit Operations-scoped actions so ancestor GPUI focus bindings cannot steal
+them. Escape or Command-W returns to browsing.
+
+Sorting, optional columns, orientation, keyboard resizing and named-workspace
+commands reuse the palette. Divider dragging and keyboard resizing share the
+same persisted weights. Compact columns disclose progressively while retaining
+filenames; requested metadata remains saved when temporarily hidden. Named
+Save/Open outcomes use short functional status text. Restoring a saved workspace
+never starts terminal commands or model requests.
+
+The 2026-10-23 native review confirmed desktop 13pt and compact 24pt layout,
+explicit operation-control focus/activation, Rename Undo with disk checks,
+keyboard resize, sorting, orientation and named restore. One initial batch,
+one consolidated repair and one confirmation were used. Evidence and exact
+limits live in `.impeccable/review/lifecycle-verdict.md` and
+`docs/verification.md`; pointer divider resizing and assistive technology were
+not exercised in this pass. The vertical capture is from the initial batch;
+remaining lifecycle captures show the final build.

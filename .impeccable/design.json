@@ -45,7 +45,14 @@
         ".impeccable/review/streaming-desktop.jpg",
         ".impeccable/review/streaming-compact24.jpg",
         ".impeccable/review/streaming-error.jpg",
-        ".impeccable/review/streaming-verdict.md"
+        ".impeccable/review/streaming-verdict.md",
+        ".impeccable/review/lifecycle-operations.jpg",
+        ".impeccable/review/lifecycle-undone.jpg",
+        ".impeccable/review/lifecycle-workspace.jpg",
+        ".impeccable/review/lifecycle-vertical.jpg",
+        ".impeccable/review/lifecycle-operations-compact24.jpg",
+        ".impeccable/review/lifecycle-panes-compact24.jpg",
+        ".impeccable/review/lifecycle-verdict.md"
       ],
       "unverified": [
         "Screen-reader behavior",
@@ -100,6 +107,18 @@
         "verdict": ".impeccable/review/streaming-verdict.md",
         "native": "Enter/Shift-Enter, Stop/Retry, code copy/paste, compact More/Less and final reference preview; desktop13pt and compact24pt",
         "limits": "Deterministic offline fixture. Actual IME, VoiceOver, live account switching and provider latency not exercised. Visible history does not restore across launches."
+      },
+      "workspaceControlsSource": "crates/buckets-app/src/browser_controls.rs",
+      "operationsSource": "crates/buckets-app/src/operations_session.rs",
+      "paneViewSource": "crates/buckets-app/src/pane_view.rs",
+      "namedWorkspacesSource": "crates/buckets-app/src/named_workspaces.rs",
+      "workspaceLifecycleVerification": {
+        "date": "2026-10-23",
+        "buildUuid": "3F0BF155-5D21-3487-BC2E-44AED19B77A5",
+        "status": "ship within bounded operations, pane controls and named-workspace scope",
+        "verdict": ".impeccable/review/lifecycle-verdict.md",
+        "native": "Rename receipts; Tab/Shift-Tab and Enter/Space Undo with fixture bytes checked; Cmd-W; sort/reverse, keyboard resize, optional columns, orientation, named Save/Open restoring views/weights; desktop13pt and compact24pt.",
+        "limits": "Offline local fixtures. Pointer divider resize, live SSH/S3, mounted-volume move, IME, VoiceOver and every user theme were not exercised."
       }
     },
     "typographyMeta": {

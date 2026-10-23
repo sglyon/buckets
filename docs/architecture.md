@@ -144,13 +144,14 @@ persistence does not provide background execution. See the upstream
 [durable harness README](https://github.com/earendil-works/pi/blob/main/packages/durable/README.md)
 and [specification](https://github.com/earendil-works/pi/blob/main/packages/durable/docs/spec.md).
 
-Before adding agent mutations, introduce a Rust operation journal containing
-stable operation IDs, typed plans, expected file versions, review decisions and
-outcomes. Conversation request deduplication does not make filesystem writes
-atomic. The current host tools expose no arbitrary shell or file mutation.
+The Rust operation journal now supplies stable IDs, typed plans, durable intent,
+per-item outcomes and guarded local recovery for desktop file mutations. Agent
+host tools still expose no arbitrary shell or file mutation. A future agent
+mutation flow must add explicit plan review and admission against current file
+versions; conversation deduplication alone cannot make filesystem writes atomic.
 
-Named workspaces, Neovim bulk rename, collections, directory comparison/sync,
-source/artifact lineage and editable workflow recipes remain future features.
+Neovim bulk rename, collections, directory comparison/sync, source/artifact
+lineage and editable workflow recipes remain future features.
 
 ## Plugin accounts
 
@@ -167,3 +168,47 @@ only from an explicit sign-in action, never from model tools. Account changes
 invalidate pending presentation and model requests. See
 [the account protocol](plugin-accounts-protocol.md) for the wire contract and
 storage boundaries.
+
+## Operation and workspace lifecycle
+
+`buckets-core::journal` owns typed `OperationPlan` / `OperationAction` values,
+receipts and the inverse-operation policy. The journal uses private versioned
+JSON, durable write-ahead intent, nonblocking OS locking and bounded history
+(128 records, 1,024 top-level actions per plan, 8 MiB JSON). Loading marks running
+records interrupted. Completed and uncertain effects are excluded from Retry;
+capability reasons come from the core rather than duplicate UI heuristics.
+
+Local writes use private sibling staging and atomic no-replace publication.
+Receipts bind operation-owned content before publication; copy hashing reuses
+the streamed write. Undo checks the receipt after persisting inverse intent,
+immediately before the effect. It refuses edits/collisions and preserves removed
+outputs in recoverable trash. This is guarded recovery, not a filesystem CAS.
+Remote and cross-filesystem Undo are unavailable. Local cancellation is checked
+per I/O chunk/hash; remote providers stop at item boundaries. Interrupted staging
+paths remain explicit rather than being blindly cleaned up.
+
+`operations_session.rs` orchestrates one desktop mutation job at a time and
+coalesces worker progress into cached snapshots. Journal locks/I/O never block
+rendering. It also owns the on-demand history/detail surface and its scoped
+control actions. `browser_controls.rs` integrates pane and named-workspace
+commands. Browsing and independent terminal jobs remain usable
+while an operation runs; quit and workspace switching require resolving the
+active mutation first.
+
+`pane_view.rs` caches sort projections when entries or preferences change.
+Canonical location identities preserve cursor/marks through sorting/filtering.
+The pinned GPUI resizable group supplies pointer geometry; keyboard controls
+update the same weights, and persistence runs on completed resize events rather
+than every mouse movement. Optional columns hide responsively without changing
+the requested preference.
+
+`named_workspaces.rs` owns metadata only: up to 64 named snapshots containing
+1–6 full provider locations, stable workspace identity, pane views, proportions,
+orientation and active index. Private atomic saves, locking and external-edit
+checks prevent silent concurrent replacement. New saved names receive their own
+identity; updates and renames preserve it. Save does not switch the current note
+namespace. Open selects that identity after validating preferences and dirty
+state, and cancels/reaps stale agent contexts. Terminal/agent locations restore
+as file panes; commands, environments and model requests are never replayed.
+Live terminal panes require explicit closure before switching. Credentials,
+accounts, theme and keybindings retain their separate stores.
