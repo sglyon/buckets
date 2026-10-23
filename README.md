@@ -116,7 +116,7 @@ Git row badges come from the Git status plugin, including changed descendants on
 
 ## Settings
 
-Press **⌘,** to open Settings. Filter preferences, then use Tab / Shift-Tab and Enter to change text size, hidden files, sidebar, preview, and plugin options. The category control beside search cycles through Appearance, Browsing, Places, Plugins, Shortcuts and Advanced; use Left / Right when it is focused. Changes save and apply immediately. Escape or ⌘W returns to the workspace; existing terminal processes keep running. Unsaved JSON prompts before closing Settings or quitting the app.
+Press **⌘,** to open Settings. A left section list jumps to Appearance, Browsing, Places, Plugins, Shortcuts and Advanced within one continuous form. Scrolling the form updates the active section. Search filters preferences across all sections. Tab / Shift-Tab moves between search, section navigation and controls; use arrow keys in the section list and Enter to jump, then Tab to enter that section's controls. Changes save and apply immediately. Escape or ⌘W returns to the workspace; existing terminal processes keep running. Unsaved JSON prompts before closing Settings or quitting the app.
 
 Preferences live in `~/.config/buckets/settings.json`, or `$BUCKETS_CONFIG_DIR/settings.json` when configured. Choose **Edit settings.json** for the built-in JSON editor, then **⌘S** to validate and save. The file uses strict JSON, without comments. After editing it in another program, choose **Reload from disk**. Unsaved drafts and external-edit conflicts require an explicit save/discard choice.
 

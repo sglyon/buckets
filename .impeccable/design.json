@@ -59,7 +59,14 @@
         ".impeccable/review/places-settings-on.jpg",
         ".impeccable/review/places-settings-compact24.jpg",
         ".impeccable/review/places-palette-compact24.jpg",
-        ".impeccable/review/places-verdict.md"
+        ".impeccable/review/places-verdict.md",
+        ".impeccable/review/settings-scrollspy-initial-desktop-scrolled.jpg",
+        ".impeccable/review/settings-scrollspy-initial-desktop-bottom.jpg",
+        ".impeccable/review/settings-scrollspy-initial-desktop-filter-recorder.jpg",
+        ".impeccable/review/settings-scrollspy-final-compact-shortcuts.jpg",
+        ".impeccable/review/settings-scrollspy-final-compact-top.jpg",
+        ".impeccable/review/settings-scrollspy-final-desktop-places.jpg",
+        ".impeccable/review/settings-scrollspy-verdict.md"
       ],
       "unverified": [
         "Screen-reader behavior",
@@ -135,6 +142,16 @@
         "verdict": ".impeccable/review/places-verdict.md",
         "native": "Shared sidebar/palette order; keyboard local navigation; Settings builtin toggle and disk save; saved rename preserving target; relaunch; compact24pt selected controls and palette.",
         "limits": "Offline fixtures; saved/builtin path identity edge cases established by tests. No live providers, IME, VoiceOver, pointer sidebar navigation or complete JSON editing pass."
+      },
+      "settingsSectionsSource": "crates/buckets-app/src/settings_sections.rs",
+      "settingsSectionsVerification": {
+        "date": "2026-10-23",
+        "source": "73911c7",
+        "buildUuid": "32C08689-9FF5-3EB0-8736-792E489D507D",
+        "status": "pass within continuous Settings form and left section navigation scope",
+        "verdict": ".impeccable/review/settings-scrollspy-verdict.md",
+        "native": "Initial desktop13pt/compact24pt batch: actual heading clicks, wheel spy through bottom, global cross-section search, recorder cancel and dirty JSON guard. Final compact-padding confirmation: one-line Appearance/Shortcuts labels, keyboard section access, reverse wheel active fill independent of focus; desktop Places heading alignment.",
+        "limits": "Initial event proofs are attributed to fe99da2/B682405E; final confirmation to 73911c7/32C08689. Offline owned fixtures. No live providers/authentication, IME, VoiceOver, complete inline-editor/JSON matrix, every font/theme or latency benchmark. Initial worker connection stalled; root warm-connection recovery supplied actual native observations."
       }
     },
     "typographyMeta": {

@@ -19,6 +19,21 @@ optimistic byte comparison; crashes release the lock, and stale writers cannot
 replace acknowledged external edits. External edits require explicit Reload.
 Symlinked settings files are readable but not rewritten through the link.
 
+Settings section navigation is presentation state, separate from persisted
+preferences. `settings_sections.rs` models canonical section ranges and active
+section/jump calculations from measured content coordinates. `settings_view.rs`
+globally filters and stably groups the form rows, then maps each heading to its
+first visible row. A GPUI canvas reads the tracked scroll handle after layout;
+deferred updates use current child bounds, viewport and content size rather than
+assumed row heights or a timer. Wheel scrolling changes only the active section,
+without moving keyboard focus or saving preferences. A requested jump aligns
+the heading to the top, clamped at the content bottom. Query changes clear
+pending jumps, reset scroll, and rebuild available sections. Selected row
+identities keep dynamic plugin controls associated with their original action;
+same-named saved places retain separate rename/remove identities. JSON and
+confirmation surfaces retain their own input routes, and section changes refuse
+to abandon active shortcut capture or invalid/pending field edits.
+
 Appearance preferences use semantic color overrides rather than a complete
 replacement palette. Missing values inherit Tokyo Night; app and terminal font
 families are independent. The host resolves installed fonts and applies one

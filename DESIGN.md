@@ -179,7 +179,9 @@ The GPUI input component uses the 13px default theme and the resolved accent car
 
 ### Settings and Places
 
-Settings is a full native workspace surface with a chrome header, filter, category control, scrolling preference rows and a persistent outcome/footer area. Rows reuse background, raised-surface, cyan-focus, green-value and muted-description tokens. The category sequence is All, Appearance, Browsing, Places, Plugins, Shortcuts and Advanced: activating the category control advances one step, while Left / Right move backward or forward when that control is selected. Typing in the settings filter returns the category to All. Text-size decrement and increment rows disable at 9pt and 24pt and show `Minimum · 9pt` or `Maximum · 24pt`.
+Settings is a full native workspace surface with a chrome header, global search, a left section rail, one continuous scrolling form on the right and a persistent outcome/footer area. Rows reuse background, raised-surface, cyan-focus, green-value and muted-description tokens. Appearance, Browsing, Places, Plugins, Shortcuts and Advanced each form one contiguous group. Clicking a section aligns its heading to the form's top, clamped at the content bottom; ordinary scrolling updates the active highlight from measured layout. Keyboard focus has a separate border and does not follow wheel scrolling. Search filters the whole form; sections without matching rows are disabled. Text-size decrement and increment rows disable at 9pt and 24pt and show `Minimum · 9pt` or `Maximum · 24pt`.
+
+The section rail is 184 physical pixels wide, reducing to 168 below a 1100-pixel viewport. It scrolls independently when enlarged text needs more height. Compact preference rows stack their title and value, while descriptions wrap in the remaining main-column width. This preserves the existing colors, type and row treatment rather than introducing a second visual system.
 
 Shortcut rows use the same preference-row treatment. Their descriptions expose Files, Workspace or Global scope, the stable action ID, recording instructions and defaults. The value shows all effective alternatives inline or `Unbound`; Enter opens an attached recorder that keeps the saved value visible. One recorded chord replaces all alternatives only after Apply. Additional alternatives remain editable in JSON. A separate Reset row appears only for an override and removes it to restore defaults.
 
@@ -329,7 +331,7 @@ The typography and authored chrome dimensions above describe the default base. T
 
 ## Settings
 
-Command-comma opens or focuses a full workspace settings page while preserving the underlying file panes and terminal entities. The implemented filter and category control organize Appearance, Browsing, Places, Plugins, Shortcuts and Advanced rows. Each row shows its value and a description; cyan borders identify the current control. Tab / Shift-Tab moves through controls, Enter or Space activates the current row, and Left / Right cycles the selected category control.
+Command-comma opens or focuses a full workspace settings page while preserving the underlying file panes and terminal entities. Global search sits above a left section rail and a continuous grouped form. Each row shows its value and a description; cyan borders identify keyboard focus separately from the section highlighted by scroll position. Tab / Shift-Tab moves between search, the rail and controls. Arrow keys choose an available section while the rail owns focus, Enter or Space jumps to it, and Tab enters its controls. Section navigation leaves the search query intact and does not hide other matching sections.
 
 Common controls persist immediately in settings.json. Plugins declare optional typed settings fields; the host renders enabled state plus Boolean, select, number, string and path fields generically. Advanced JSON supports the complete configuration with Command-S validation/save and explicit reload. Errors retain the last applied settings and draft. Closing, quitting or reloading with a dirty draft presents the corresponding save/discard/keep-editing choices. Escape or Command-W returns to the previous workspace focus. Settings rows, JSON actions and recovery states scroll or wrap within 960×640 at the 24-point maximum.
 
@@ -386,3 +388,12 @@ palette targets, Settings toggle save, rename retaining location, restart and
 compact keyboard reachability. See `.impeccable/review/places-verdict.md` and
 `docs/verification.md` for exact evidence and limits. No visual identity or token
 changes were introduced.
+
+The Settings section refinement received one initial native desktop13pt /
+compact24pt batch and one consolidated compact-padding repair/confirmation.
+Final UUID `32C08689-9FF5-3EB0-8736-792E489D507D` preserves the existing visual
+world while verifying single-line rail labels, keyboard section access,
+manual scrollspy independent of focus, and desktop heading alignment. Initial
+evidence separately covers global cross-section search, recorder cancellation
+and dirty JSON recovery. See `docs/verification.md` for build attribution and
+the limits of this bounded pass.

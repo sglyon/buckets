@@ -544,6 +544,70 @@ next edit. All commands used one Cargo target with incremental compilation and
 debug info disabled, and no new dependency was added. Cleanup details:
 `target/places-disk-cleanup-2026-10-23.json`.
 
+## Settings section navigation — 2026-10-23
+
+Source `fe99da2` replaces category cycling with a clickable left section rail
+and one continuous form. Global search filters across all sections; links with
+no matching rows remain visible but disabled. Roving arrows choose a section,
+Enter jumps to its measured heading, and Tab enters its controls. Manual
+scrolling updates active fill independently of the keyboard-focus outline.
+Section geometry handles variable-height rows and the final short section
+without timers or assumed row heights. JSON and confirmation surfaces retain
+their separate input routes. Independent source review found and resolved a
+same-name saved-place selection collision before native verification.
+
+**117 focused test executions passed**: 36 app, 10 appearance,
+7 appearance runtime, 10 bookmark, 11 keybinding, 12 Places, 15 settings,
+5 section geometry and 11 shortcut recorder executions. Shared module tests
+repeat across targets; this is not 117 distinct workflows. Strict app/all-target
+Clippy, formatting and the scoped layout scan passed. After the sole native
+repair, `73911c7` passed the relevant 36 app + 5 section executions and strict
+app/all-target Clippy again. Logs: `target/settings-scrollspy-focused-tests.log`,
+`target/settings-scrollspy-clippy.log`, `target/settings-scrollspy-repair-tests.log`
+and `target/settings-scrollspy-repair-clippy.log`.
+
+The bounded initial native batch used source `fe99da2`, arm64 UUID
+`B682405E-D459-3198-9501-F5ECFC9CE38A`. The worker's initial isolated-app CUA
+connection stalled before returning UI state and was interrupted; the root's
+existing warm connection then succeeded and supplied actual event evidence.
+Desktop 1440×900/13pt verified Places click/top alignment, manual wheel changes
+to Shortcuts and Advanced at the bottom while preserving rail focus, global
+Downloads results spanning Places and Shortcuts, keyboard entry into the matching
+recorder and cancellation, no-match recovery, and dirty JSON close/discard.
+Compact 960×640/24pt verified keyboard section and plugin-control access, but
+revealed mid-word wrapping in the rail's Appearance and Shortcuts labels.
+
+One consolidated repair, `73911c7`, uses fixed physical horizontal padding in
+the compact rail and section rows. The single final native confirmation on
+UUID `32C08689-9FF5-3EB0-8736-792E489D507D` verified both labels fit one line,
+keyboard navigation still works, and reverse manual scrolling from Shortcuts
+returns the main form and active fill to Appearance while leaving the Shortcuts
+focus outline intact. Final desktop Places click still aligns its heading to
+the main form's top. No further source or presentation repair was needed.
+
+Retained native verdict: `.impeccable/review/settings-scrollspy-verdict.md`.
+Six selected proofs use the `settings-scrollspy-` prefix: initial
+`desktop-scrolled`, `desktop-bottom`, `desktop-filter-recorder`; final
+`compact-shortcuts`, `compact-top`, `desktop-places` (all `.jpg`). The detailed
+ledger and all 13 source capture hashes/build attribution are in
+`target/settings-scrollspy-native-qa/{native-verification.md,capture-provenance.json}`.
+Direct fixture checks confirmed both settings files and saved URLs unchanged,
+with empty credentials. Both owned QA apps quit; the normal user app remained
+running. Captures establish displayed states; event claims come from actual
+root interaction observations. Initial-build proofs remain explicitly separate
+from final-build captures. No live SSH/S3, account authentication, IME,
+VoiceOver, full performance benchmark, every inline editor/recorder state,
+every theme/font or every JSON path is certified by this pass.
+
+The delivered `target/debug/Buckets.app` and raw executable share final arm64
+UUID `32C08689-9FF5-3EB0-8736-792E489D507D`; strict deep ad-hoc signature
+verification passed. The two owned QA app copies and nine disposable focused
+test executables were removed after confirmation, totaling 239,215,730 logical
+bytes. The main bundle/raw executable, shared dependency cache, older QA copies,
+fixture configuration and evidence were retained. Exact hashes, signature
+result and bounded cleanup record: `target/settings-scrollspy-delivery.json`.
+No new dependency or separate Cargo target cache was introduced.
+
 ## Limits of this evidence
 
 - Outgoing cross-application dragging is implemented using native AppKit file dragging, but remains unverified by automation. Bounded CUA attempts did not deliver an outside-window movement that triggered native export; no conclusion about the native export session follows from those attempts. Internal pane dragging and Finder clipboard interoperability were verified. Inbound cross-application drops also require a direct manual pass. These gaps must not be described as verified drag/drop coverage.
