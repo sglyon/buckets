@@ -6,7 +6,10 @@ The plugin owns conversations, explicit workspace notes, and its embedding cache
 
 ## Install
 
-Node.js **22.19+** and npm are required. From the Buckets checkout:
+Building from the checkout uses pinned project-local Vite+ and npm. Use
+**Node.js 24 LTS (24.11+)**; Node 22.19+ on the 22.x line and Node 26+ also work.
+No global Vite+ installation is needed. The installed plugin runs directly in
+Node without the development toolchain. From the Buckets checkout:
 
 ```sh
 scripts/install-ai-plugin
@@ -170,11 +173,13 @@ read-only tools only.
 
 ```sh
 npm ci --ignore-scripts
+npm run check
 npm test
-npm run typecheck
 ```
 
 Tests use a deterministic test-only provider through the **real pi harness**,
 SQLite restart fixtures, an embedding HTTP fixture, and the actual SDK wire.
+Vite+ runs the same assertions through Vitest; `npm run check` combines formatting,
+linting and typechecking. `npm run build` packages the SDK before the plugin.
 They do not use cloud credentials or claim live provider/service certification.
 The plugin itself has no fake-provider configuration switch.

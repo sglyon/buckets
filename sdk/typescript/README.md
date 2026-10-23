@@ -39,8 +39,11 @@ matching request signal; durable plugins must also record cancellation in their
 own state. See `docs/plugin-agent-protocol.md` and the AI plugin for the complete
 host protocol and crash/cancel distinction.
 
-From the repository root: `npm ci --ignore-scripts`, `npm run build`, `npm test`,
-and `npm run typecheck`. The example manifest remains a normal executable
+From the repository root: `npm ci --ignore-scripts`, `npm run check` and `npm test`.
+Pinned project-local Vite+ handles formatting, linting, typechecking, tests and
+library packaging. `npm run build` emits Node ESM and SDK declarations;
+`npm run format` formats all TypeScript, and `npm run format:check` checks it.
+No global Vite+ installation is required. The example manifest remains a normal executable
 manifest. `npm pack` packages only compiled SDK files and this README.
 
 The macOS CI job runs the SDK/AI tests and TypeScript checks on Node 24, then

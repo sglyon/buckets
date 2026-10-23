@@ -6,13 +6,27 @@
     "plugins/ai"
   ],
   "scripts": {
-    "test": "npm test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
+    "format": "vp fmt --write \"**/*.{ts,tsx,mts,cts}\"",
+    "format:check": "vp fmt --check \"**/*.{ts,tsx,mts,cts}\"",
+    "check": "vp check --deny-warnings",
+    "typecheck": "vp check --no-fmt --no-lint",
+    "test": "vp test",
+    "build": "vp run --filter '@buckets/*' --concurrency-limit 1 bundle",
+    "precheck": "npm run build",
     "pretest": "npm run build",
     "pretypecheck": "npm run build"
   },
   "engines": {
-    "node": ">=22.19"
-  }
+    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.0",
+    "vite-plus": "1.4.0"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0"
+  },
+  "type": "module",
+  "packageManager": "npm@11.19.1"
 }

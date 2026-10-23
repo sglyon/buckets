@@ -25,8 +25,9 @@ portable; other platforms need their own verification. Read [README](README.md),
 Use current stable Rust with rustfmt/Clippy and macOS developer tools with a
 working SDK. GPUI uses Metal; this app enables `runtime_shaders` in
 `crates/buckets-app/Cargo.toml`. Python 3.9+ is needed for bundled developer-tools
-and Python-backed acceptance fixtures. Node.js 22.19+ and npm are needed for the
-TypeScript SDK/AI plugin; CI uses Node 24. Optional integrations additionally
+and Python-backed acceptance fixtures. Use Node.js 24 LTS (24.11+) and npm for
+TypeScript development; Vite+ also supports Node 22.19+ on the 22.x line and
+Node 26+. CI uses Node 24. Optional integrations additionally
 need their own tools (`fd`, `rg`, SSH, AWS CLI, Neovim, Lazygit or FFF).
 
 Run commands from the repository root. Keep one default Cargo `target/` cache
@@ -55,14 +56,24 @@ cargo test -p buckets-app --test command_line_acceptance
 cargo clippy --workspace --all-targets -- -D warnings
 
 npm ci --ignore-scripts
-npm run build
+npm run check
 npm test
-npm run typecheck
 ```
 
-`scripts/check` covers Rust, not npm. Root npm scripts cover both workspaces
-(`sdk/typescript`, `plugins/ai`); test/typecheck also build their JavaScript first.
-Use `npm test --workspace @buckets/plugin-sdk` for a focused SDK run. See
+`scripts/check` covers Rust. Pinned project-local Vite+ owns TypeScript tooling;
+no global `vp` installation is required. `npm run check` runs formatting, lint
+and type checks; `npm test` runs Vitest through Vite+. Both build the workspaces
+first. `npm run build` packages the SDK (including declarations) before the AI
+plugin using Vite+ tasks and `vp pack`; production dependencies stay external.
+TypeScript remains a development dependency for SDK declaration generation.
+`npm run format` formats all TypeScript source, tests, examples and configs;
+`npm run format:check` only verifies formatting, and `npm run typecheck` only
+checks types. Root `vite.config.ts` owns formatting/lint policy: 100-column lines,
+preserved import order, and no generated outputs or dependencies. Package Vite
+configs own library output and test discovery. Keep real Node/SQLite behavior
+and all existing assertions when editing tests.
+After `npm run build`, use `npm test --workspace @buckets/plugin-sdk` for a focused
+SDK run, or `npm test -- --project workspace-ai` for AI tests. See
 [CI](.github/workflows/ci.yml) for installed-plugin checks. Do not blindly enable
 ignored tests: optional tools and installed AI-plugin fixtures require explicit
 setup described in [verification](docs/verification.md) and the relevant test.

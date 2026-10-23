@@ -20,7 +20,8 @@ export interface RequestContext {
   host: { call<T = unknown>(method: string, params?: unknown): Promise<T> };
   notify(method: string, params: unknown): void;
 }
-export type Handler = (params: unknown, context: RequestContext) => unknown | Promise<unknown>;
+/** The transport awaits the result, so handlers may return a value or a promise. */
+export type Handler = (params: unknown, context: RequestContext) => unknown;
 export interface PluginOptions {
   handlers: Record<string, Handler>;
   input?: Readable;
@@ -336,7 +337,8 @@ export interface TerminalLaunchRequest {
 }
 export interface CommandRegistration {
   descriptor: CommandDescriptor;
-  run(arguments_: CommandArguments, context: RequestContext): unknown | Promise<unknown>;
+  /** Commands may return a value or a promise, as with ordinary RPC handlers. */
+  run(arguments_: CommandArguments, context: RequestContext): unknown;
 }
 
 const byteLength = (value: string) => Buffer.byteLength(value, "utf8");

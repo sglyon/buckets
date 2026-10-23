@@ -131,7 +131,7 @@ Undo is guarded local recovery: it refuses changed files or destination collisio
 
 ## Workspace AI
 
-The optional TypeScript AI plugin adds **Ask these panes**, **Semantic search these panes**, **Workspace memory**, and **Reindex semantic search** to the command palette. Install it explicitly from the checkout with `scripts/install-ai-plugin` (Node.js 22.19+ and npm required), then reload plugins from the palette. Startup never downloads packages. In **Settings → Plugins → Workspace AI**, choose **Continue with ChatGPT** to connect an eligible ChatGPT plan. New setups use ChatGPT by default; OpenAI/Anthropic API keys and compatible local endpoints remain available through the provider setting. Embeddings have their own endpoint and credentials. See [plugin setup and limits](plugins/ai/README.md).
+The optional TypeScript AI plugin adds **Ask these panes**, **Semantic search these panes**, **Workspace memory**, and **Reindex semantic search** to the command palette. Install it explicitly from the checkout with `scripts/install-ai-plugin` (Node.js 24 LTS and npm recommended; see supported versions below), then reload plugins from the palette. Startup never downloads packages. In **Settings → Plugins → Workspace AI**, choose **Continue with ChatGPT** to connect an eligible ChatGPT plan. New setups use ChatGPT by default; OpenAI/Anthropic API keys and compatible local endpoints remain available through the provider setting. Embeddings have their own endpoint and credentials. See [plugin setup and limits](plugins/ai/README.md).
 
 A command opens or focuses one agent pane for that plugin and workspace. Enter sends a question; Shift-Enter inserts a newline. Real answer text streams as Markdown into a bounded conversation transcript. Tool activity stays in one collapsible disclosure. Stop or Escape preserves partial text, and Retry starts a fresh request. Copy actions belong to individual replies and code blocks. Scroll back to read earlier content without being pulled to the bottom; Jump to latest resumes following. Tab / Shift-Tab reaches the available actions, memory and validated references. Cited files can be previewed or opened in an ordinary file pane. Results opens a normal file list with reasons and snippets. Existing pane-switch, split, close, text-size and theme settings continue to apply.
 
@@ -241,7 +241,9 @@ SSH authentication continues to use your SSH configuration and agent. Saved plac
 
 Start with [AGENTS.md](AGENTS.md) for repository boundaries, isolated QA and
 contribution commands. Python 3.9+ is needed for bundled tools and Python-backed
-tests. SDK/AI development also needs Node.js 22.19+ and npm (CI uses Node 24).
+tests. TypeScript development uses project-local Vite+ and npm; no global Vite+
+installation is required. Node.js 24 LTS (24.11+) is recommended and used by CI;
+Node 22.19+ on the 22.x line and Node 26+ are also supported.
 
 ```sh
 export CARGO_INCREMENTAL=0
@@ -250,11 +252,13 @@ export CARGO_PROFILE_TEST_DEBUG=0
 scripts/check
 
 npm ci --ignore-scripts
+npm run check
 npm test
-npm run typecheck
 ```
 
-The Rust script checks formatting, runs workspace tests (including real PTY acceptance), checks the native application, and runs Clippy. npm checks the SDK and AI workspaces, building them first. macOS CI runs these gates plus installed-plugin fixture checks. Keep one default Cargo target cache, and avoid concurrent builds. Dependencies are pinned in `Cargo.lock` and `package-lock.json`. Real Neovim and Lazygit tests run explicitly as described in the verification notes.
+The Rust script checks formatting, runs workspace tests (including real PTY acceptance), checks the native application, and runs Clippy. For TypeScript, `npm run check` uses Vite+ for formatting, linting and typechecking; `npm test` runs the existing fixtures through Vite+'s Vitest runner. Both build the SDK and AI plugin first. `npm run build` uses Vite+ tasks and `vp pack` for Node ESM libraries and SDK declarations, keeping runtime dependencies external. TypeScript remains a development dependency for declaration generation.
+
+Run `npm run format` to format all TypeScript source, tests, examples and configs with Vite+'s Oxfmt; `npm run format:check` checks without writing, and `npm run typecheck` checks types alone. Root `vite.config.ts` sets 100-column lines and preserves import order; package configs define tests and library output. Generated outputs and dependencies are excluded. macOS CI runs the combined checks and tests plus installed-plugin fixtures. Keep one default Cargo target cache, and avoid concurrent builds. Dependencies are pinned in `Cargo.lock` and `package-lock.json`. Real Neovim and Lazygit tests run explicitly as described in the verification notes.
 
 | Crate | Responsibility |
 | --- | --- |

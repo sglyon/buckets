@@ -95,6 +95,7 @@ function text(value: unknown, max = 32768): value is string {
     typeof value === "string" &&
     value.length > 0 &&
     value.length <= max &&
+    // oxlint-disable-next-line no-control-regex -- Account text must reject control characters.
     !/[\x00-\x1f]/.test(value)
   );
 }
@@ -384,6 +385,7 @@ export class ChatGPTAccounts {
       typeof value.expires_in !== "number" ||
       !Number.isFinite(value.expires_in) ||
       value.expires_in <= 0 ||
+      // oxlint-disable-next-line typescript/no-base-to-string -- Preserve existing wire-value normalization.
       (value.token_type !== undefined && String(value.token_type).toLowerCase() !== "bearer")
     )
       throw new TokenError(false);

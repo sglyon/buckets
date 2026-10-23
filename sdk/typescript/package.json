@@ -8,13 +8,9 @@
     "default": "./dist/index.js"
   },
   "scripts": {
-    "test": "node --test test/*.test.ts",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json"
-  },
-  "devDependencies": {
-    "@types/node": "^24.0.0",
-    "typescript": "~5.9.0"
+    "test": "vp test",
+    "typecheck": "vp check --no-fmt --no-lint",
+    "build": "vp run bundle"
   },
   "files": [
     "dist",

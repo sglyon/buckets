@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test } from "vite-plus/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { access } from "node:fs/promises";

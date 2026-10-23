@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test } from "vite-plus/test";
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import { servePlugin, type Handler } from "../src/index.ts";

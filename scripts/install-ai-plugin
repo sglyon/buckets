@@ -13,13 +13,21 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--config-dir', type=Path, default=Path(os.environ.get('BUCKETS_CONFIG_DIR', '~/.config/buckets')).expanduser())
 parser.add_argument('--node', default=shutil.which('node'))
 args = parser.parse_args()
+node_requirement = 'Use Node.js 24 LTS (24.11+), Node 22.19+ (22.x), or Node 26+ for the Vite+ build'
 if not args.node:
-    parser.error('Node.js 22.19+ is required; install it and retry')
-node = str(Path(args.node).absolute())
+    parser.error(node_requirement)
+node_command = str(Path(args.node).absolute())
+# Runtime-manager shims depend on the launch environment and may download tools.
+# Persist the real interpreter so the installed plugin runs independently.
+node_path = Path(subprocess.check_output([node_command, '-p', 'process.execPath'], text=True).strip())
+if not node_path.is_absolute() or not node_path.is_file() or not os.access(node_path, os.X_OK):
+    parser.error('The selected Node command did not resolve to an executable Node binary')
+node = str(node_path.resolve())
 version = subprocess.check_output([node, '--version'], text=True).strip().removeprefix('v')
 parts = tuple(int(part) for part in version.split('.')[:3])
-if parts < (22, 19, 0):
-    parser.error('Node.js 22.19+ is required')
+if not ((parts[0] == 22 and parts >= (22, 19, 0)) or
+        (parts[0] == 24 and parts >= (24, 11, 0)) or parts[0] >= 26):
+    parser.error(node_requirement)
 npm = shutil.which('npm')
 if not npm:
     parser.error('npm is required to install pinned plugin dependencies')

@@ -15,11 +15,6 @@ export interface Chunk {
   text: string;
   vector: number[];
 }
-interface Indexed {
-  location: string;
-  name: string;
-  chunks: Chunk[];
-}
 export interface IndexReceipt {
   files: number;
   reused: number;
@@ -124,7 +119,7 @@ export class RetrievalIndex {
         body: JSON.stringify({ model: config.embedding_model, input }),
         signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
       });
-    } catch (error) {
+    } catch {
       if (signal.aborted) throw new Error("Semantic indexing cancelled");
       throw new Error(
         "Embedding request failed; check the configured endpoint and its availability",

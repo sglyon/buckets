@@ -18,6 +18,7 @@ export interface AIConfig {
 }
 function string(value: unknown, fallback = ""): string {
   if (value === undefined) return fallback;
+  // oxlint-disable-next-line no-control-regex -- Configuration must reject control characters.
   if (typeof value !== "string" || value.length > 8192 || /[\x00-\x1f]/.test(value))
     throw new Error("AI configuration text is invalid");
   return value.trim();

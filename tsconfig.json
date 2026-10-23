@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "vite.config.ts",
+    "sdk/typescript/vite.config.ts",
+    "plugins/ai/vite.config.ts",
+    "examples/plugins/typescript-search/**/*.ts"
+  ]
+}

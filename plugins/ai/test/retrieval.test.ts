@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test } from "vite-plus/test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -150,7 +150,7 @@ test("index preserves provider URIs and reports capped/truncated/skipped candida
     index.close();
   }));
 test("invalid embedding vectors and missing configuration are explicit errors", async () =>
-  fixture(async (directory, url) => {
+  fixture(async (directory) => {
     const index = new RetrievalIndex(join(directory, "vectors.sqlite"));
     await assert.rejects(
       index.embed(["hello"], readConfig({}), new AbortController().signal),
