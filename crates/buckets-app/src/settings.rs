@@ -1,7 +1,7 @@
 //! Durable application preferences. Workspace navigation is stored separately.
 use anyhow::{Context, Result, bail, ensure};
 use buckets_core::Location;
-use buckets_plugin::{PluginOverrides, PluginRegistry};
+use buckets_plugin::{ExclusiveFileLock, PluginOverrides, PluginRegistry};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{
@@ -298,11 +298,10 @@ impl SettingsStore {
             options.mode(0o600);
         }
         let lock = options.open(lock_path).context("Open settings save lock")?;
-        lock.try_lock()
+        let _lock = ExclusiveFileLock::try_acquire(lock)
             .context("Settings are being saved by another process; retry after it finishes")?;
-        // Keep the inode persistent. Closing this descriptor releases the OS
-        // lock even after a crash; unlinking it could allow two different locks.
-        let _lock = lock;
+        // Keep the inode persistent; unlinking it could allow different locks.
+        // The guard explicitly unlocks on success and every error return.
         self.check_original(create)?;
         let name = format!(
             ".settings.{}.{}.tmp",

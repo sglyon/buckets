@@ -128,6 +128,9 @@ Bundled-source upgrades must preserve user-edited plugins/configuration.
   Slash filtering and colon commands must not intercept terminal/editor input.
 - Settings/history/workspace writes validate before private atomic persistence
   and retain drafts/last-good values on failed or conflicting saves.
+- Use `buckets_plugin::ExclusiveFileLock` for production file leases. It explicitly
+  unlocks on return or shutdown; closing a descriptor alone can let forked children
+  prolong a completed lease. Callers still open and validate the lock file.
 
 ## Isolated verification
 

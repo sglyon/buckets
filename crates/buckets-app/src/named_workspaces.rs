@@ -2,6 +2,7 @@
 //! it never serializes or replays terminal commands, credentials, or agent jobs.
 use anyhow::{Context, Result, ensure};
 use buckets_core::Location;
+use buckets_plugin::ExclusiveFileLock;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -314,7 +315,7 @@ impl NamedWorkspaceStore {
             .to_string_lossy();
         let lock_path = parent.join(format!(".{file_name}.lock"));
         let lock = open_lock(&lock_path)?;
-        lock.try_lock().context(
+        let _lock = ExclusiveFileLock::try_acquire(lock).context(
             "Named workspaces are being saved by another process; retry after it finishes",
         )?;
         self.check_original()?;

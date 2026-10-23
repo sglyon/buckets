@@ -1,7 +1,7 @@
 //! Opt-in duplex services. Ordinary one-shot plugins remain unchanged.
 use super::{
-    AccountAction, AccountEvent, AccountRequest, AccountState, Capability, MAX_REQUEST_BYTES,
-    MAX_RESPONSE_BYTES, PROTOCOL_VERSION, PluginRegistry, terminate,
+    AccountAction, AccountEvent, AccountRequest, AccountState, Capability, ExclusiveFileLock,
+    MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, PROTOCOL_VERSION, PluginRegistry, terminate,
 };
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -175,7 +175,7 @@ impl AgentUpdate {
 /// One serial duplex connection. Use off the UI thread; dropping it terminates
 /// and reaps its entire process group. A poisoned connection is not reusable.
 pub struct AgentService {
-    storage: Option<(PathBuf, std::fs::File)>,
+    storage: Option<(PathBuf, ExclusiveFileLock)>,
     child: Option<Child>,
     writer: Option<SyncSender<Vec<u8>>>,
     reader: Receiver<Result<(Value, usize)>>,
@@ -627,7 +627,7 @@ impl AgentService {
         let lock = options
             .open(directory.join(".host-service.lock"))
             .context("Open agent storage lock")?;
-        lock.try_lock().map_err(|error| {
+        let lock = ExclusiveFileLock::try_acquire(lock).map_err(|error| {
             anyhow::anyhow!("Workspace agent service already owns this storage: {error}")
         })?;
         self.storage = Some((directory, lock));

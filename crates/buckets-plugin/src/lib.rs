@@ -9,6 +9,8 @@ mod accounts;
 pub use accounts::*;
 mod commands;
 pub use commands::*;
+mod file_lock;
+pub use file_lock::ExclusiveFileLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{

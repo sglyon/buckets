@@ -1,6 +1,7 @@
 //! Typed command text, pure discovery/path planning and explicit command history.
 use anyhow::{Context, Result, bail, ensure};
 use buckets_core::Location;
+use buckets_plugin::ExclusiveFileLock;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -506,7 +507,7 @@ impl HistoryStore {
             .open(&lock_path)
             .context("Open command history lock")?;
         verify_inode(&lock_path, &lock)?;
-        let _lock = HistorySaveLock::acquire(lock)
+        let _lock = ExclusiveFileLock::try_acquire(lock)
             .context("Command history is being saved by another process")?;
         ensure!(
             read_history(&self.path)? == self.original,
@@ -545,23 +546,6 @@ impl HistoryStore {
         self.entries = entries;
         self.original = Some(bytes);
         Ok(())
-    }
-}
-
-struct HistorySaveLock(fs::File);
-
-impl HistorySaveLock {
-    fn acquire(file: fs::File) -> std::result::Result<Self, fs::TryLockError> {
-        file.try_lock()?;
-        Ok(Self(file))
-    }
-}
-
-impl Drop for HistorySaveLock {
-    fn drop(&mut self) {
-        // Forked children can retain this open-file description until exec.
-        // Unlock explicitly so they cannot extend a completed save's lease.
-        let _ = self.0.unlock();
     }
 }
 
@@ -618,43 +602,4 @@ fn read_history(path: &Path) -> Result<Option<Vec<u8>>> {
         "Command history exceeds 256 KiB"
     );
     Ok(Some(bytes))
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn completed_history_save_releases_lock_even_with_an_inherited_descriptor() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("history.lock");
-        let open = || {
-            OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(&path)
-                .unwrap()
-        };
-        let writer = HistorySaveLock::acquire(open()).unwrap();
-        // A dup shares the same open-file description, as a forked child does.
-        // Keeping it alive makes the failure deterministic without spawning.
-        let inherited = writer.0.try_clone().unwrap();
-        assert!(matches!(
-            HistorySaveLock::acquire(open()),
-            Err(fs::TryLockError::WouldBlock)
-        ));
-        drop(writer);
-
-        let next = HistorySaveLock::acquire(open())
-            .expect("a completed save must release its lock before an inherited descriptor closes");
-        drop(inherited);
-        assert!(matches!(
-            HistorySaveLock::acquire(open()),
-            Err(fs::TryLockError::WouldBlock)
-        ));
-        drop(next);
-        assert!(HistorySaveLock::acquire(open()).is_ok());
-    }
 }

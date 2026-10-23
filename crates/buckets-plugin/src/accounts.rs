@@ -1,7 +1,7 @@
 //! Provider-neutral account presentation and a host-owned credential vault.
 //! Credentials never enter settings or agent conversations. A lease serializes
 //! a complete refresh/read/replace across processes and is released on drop.
-use super::{AgentService, Capability, PluginRegistry};
+use super::{AgentService, Capability, ExclusiveFileLock, PluginRegistry};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -190,7 +190,7 @@ const MAX_CREDENTIAL_BYTES: usize = 262_144;
 static NEXT_LEASE: AtomicU64 = AtomicU64::new(1);
 struct Lease {
     key: String,
-    _file: File,
+    _lock: ExclusiveFileLock,
 }
 /// A private, portable on-disk vault. The host supplies its own configuration
 /// root and a manifest ID, never a path chosen by the plugin. Debug intentionally
@@ -232,7 +232,7 @@ impl CredentialBroker {
                     "Credential store is busy; retry"
                 );
                 let file = self.directory.open_file(&format!("{key}.lock"), true)?;
-                file.try_lock()
+                let lock = ExclusiveFileLock::try_acquire(file)
                     .map_err(|_| anyhow::anyhow!("Credential store is busy; retry"))?;
                 let value = self.read(key)?;
                 let lease = format!(
@@ -244,7 +244,7 @@ impl CredentialBroker {
                     lease.clone(),
                     Lease {
                         key: key.into(),
-                        _file: file,
+                        _lock: lock,
                     },
                 );
                 Ok(match value {
