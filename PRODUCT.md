@@ -23,6 +23,7 @@ Local drives, SSH hosts, S3-compatible buckets, and Git trees. Search integrates
 - Command-minus/plus adjusts saved text size across file browsing, Quick Look and embedded terminals; Command-0 resets it.
 - Appearance supports independently configurable app/terminal font families and semantic color tokens, persisted in JSON and applied live. Tokyo Night and bundled JetBrains Mono remain the defaults, with explicit reset and unavailable-font recovery.
 - Independent panes; safe rename, copy, move, duplicate, create, and delete workflows.
+- Places combines saved local/remote locations and optional built-in shortcuts in one keyboard-accessible list; existing bookmark data and shortcut IDs remain compatible.
 - File mutations share a bounded durable operation journal, with inspectable per-item outcomes, honest cancellation, safe retry and guarded local Undo. Uncertain effects never replay automatically; remote and cross-filesystem Undo remain unavailable.
 - Per-pane sorting, optional metadata columns, adjustable proportions and horizontal/vertical arrangements persist without making everyday browsing a dashboard.
 - Named workspaces preserve full provider locations, active pane and view geometry with separate note/agent identities. Restore never reruns terminal commands or model requests, and transitions protect dirty drafts and live terminals.

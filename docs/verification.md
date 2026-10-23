@@ -497,6 +497,53 @@ Interrupted staging paths stay inspectable rather than being blindly removed.
 Named workspaces restore metadata only; live terminals and unsaved drafts must
 be resolved before switching, and terminal commands/model requests never replay.
 
+## Unified Places — 2026-10-23
+
+Source `f8539c8` consolidates built-in and saved locations under Places. Existing
+`bookmarks` data/metadata and `bookmark.add` / `bookmark.open` action IDs remain
+compatible. `places.builtins` controls the optional built-ins; the same pure
+projection supplies sidebar and keyboard palette, saved entries first, with
+redundant built-ins omitted by typed Location identity. Settings → Places adds
+visibility toggles, retains saved rename/remove and links to JSON for path/order
+edits. The ambiguous Workspace shortcut is now Launch directory.
+
+**81 focused test executions passed**: 33 app, 10 bookmark, 11 keybinding,
+12 Places and 15 settings. Shared-module tests repeat across targets. Seven new
+model/disk tests cover legacy no-rewrite behavior, metadata/URL preservation,
+validation and failed-save retention, restart, concurrent external edits,
+ordering, and local trailing-slash/repeated-separator dedup without I/O. Two new
+app regressions cover palette management/target mapping and stable shortcut
+IDs/overrides. Independent source review found the initial string-identity dedup
+edge; typed Location equality and its regression resolve it. Formatting and
+strict app/all-target Clippy passed. Logs:
+`target/places-desktop-focused-tests.log`, `target/places-app-clippy.log`.
+
+One batched native desktop13pt / compact24pt pass verified the shared list,
+local saved-place navigation, Settings toggling Downloads, actual settings-file
+persistence, sidebar update, Rename preserving its target and other saved URLs,
+and relaunch persistence. Compact category navigation kept the selected toggle
+readable; Open Places remained usable with the sidebar hidden. Launch directory
+and Root shared `/`, and only one builtin row appeared. Saved-vs-builtin path
+edge cases come from tests; the private Home Base fixture differed from the real
+Home because LaunchServices ignored the attempted HOME override. No real home
+files or remote destinations were opened or modified. No presentation repair
+or extra polish round was needed.
+
+Native captures and verdict: `.impeccable/review/places-{desktop,palette,restored,settings-on,settings-compact24,palette-compact24}.jpg`
+and `.impeccable/review/places-verdict.md`. These establish the observed states
+and keyboard paths, not live SSH/S3, pointer navigation, IME, VoiceOver or every
+JSON editing path. Both owned QA copies quit; normal user app/configuration and
+credentials remained untouched. Main executable and bundle share arm64 UUID
+`DA9E4672-ABBB-3DF0-8B5D-0F6D754616A7`, and the bundle passed strict deep ad-hoc
+signature verification. Build log: `target/places-bundle.log`.
+
+The two private app copies and disposable focused-test executables were removed
+after verification. Main app/raw binary hashes and signature remained valid;
+shared dependency caches were retained to avoid another full compilation on the
+next edit. All commands used one Cargo target with incremental compilation and
+debug info disabled, and no new dependency was added. Cleanup details:
+`target/places-disk-cleanup-2026-10-23.json`.
+
 ## Limits of this evidence
 
 - Outgoing cross-application dragging is implemented using native AppKit file dragging, but remains unverified by automation. Bounded CUA attempts did not deliver an outside-window movement that triggered native export; no conclusion about the native export session follows from those attempts. Internal pane dragging and Finder clipboard interoperability were verified. Inbound cross-application drops also require a direct manual pass. These gaps must not be described as verified drag/drop coverage.
@@ -532,7 +579,7 @@ Use the isolated `target/ui-fixture` directories when performing mutations:
 
 ## Current delivery
 
-`target/debug/Buckets.app` is the delivered locally ad-hoc-signed macOS bundle, including the embedded PTY terminal, JSON-backed Settings, live appearance tokens and font choices, configurable application/plugin shortcuts with key recording, native menus, saved full-location bookmarks, inline filename filtering, guarded operation recovery, sortable/resizable panes and named workspaces. Split defaults to Command-T. The developer-tools plugin requests embedded shell, Neovim and Lazygit panes by default and retains explicit iTerm2 alternatives. `scripts/dev` starts the source build; `scripts/bundle-macos` reproduces the bundle.
+`target/debug/Buckets.app` is the delivered locally ad-hoc-signed macOS bundle, including the embedded PTY terminal, JSON-backed Settings, live appearance tokens and font choices, configurable application/plugin shortcuts with key recording, native menus, configurable Places with saved full-location bookmarks, inline filename filtering, guarded operation recovery, sortable/resizable panes and named workspaces. Split defaults to Command-T. The developer-tools plugin requests embedded shell, Neovim and Lazygit panes by default and retains explicit iTerm2 alternatives. `scripts/dev` starts the source build; `scripts/bundle-macos` reproduces the bundle.
 
 The final bundle passed `codesign --verify --deep --strict`. Its arm64 Mach-O UUID matches `target/debug/buckets`, as recorded in `target/delivery-bundle-verification.log`. Native checks above cover the named fixture workflows and captures; they do not certify every TUI, workload, IME or accessibility scenario.
 

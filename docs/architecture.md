@@ -212,3 +212,15 @@ state, and cancels/reaps stale agent contexts. Terminal/agent locations restore
 as file panes; commands, environments and model requests are never replayed.
 Live terminal panes require explicit closure before switching. Credentials,
 accounts, theme and keybindings retain their separate stores.
+
+## Places navigation
+
+`places.rs` projects one ordered navigation list from the existing `bookmarks`
+array plus optional built-in IDs in `places.builtins`. Saved entries retain their
+index, provider URL and opaque metadata. Built-ins whose typed location identity already
+appears in the list are suppressed, without resolving symlinks or performing
+provider I/O. Sidebar and Open Places use the same projection; direct Go actions
+remain independent of visibility. Launch directory describes process cwd, not
+a named workspace. Settings → Places persists visibility and saved rename/remove
+through the existing guarded SettingsStore. `bookmark.add` and `bookmark.open`
+action IDs retain shortcut compatibility while visible labels use Places.

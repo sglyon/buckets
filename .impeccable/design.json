@@ -52,7 +52,14 @@
         ".impeccable/review/lifecycle-vertical.jpg",
         ".impeccable/review/lifecycle-operations-compact24.jpg",
         ".impeccable/review/lifecycle-panes-compact24.jpg",
-        ".impeccable/review/lifecycle-verdict.md"
+        ".impeccable/review/lifecycle-verdict.md",
+        ".impeccable/review/places-desktop.jpg",
+        ".impeccable/review/places-palette.jpg",
+        ".impeccable/review/places-restored.jpg",
+        ".impeccable/review/places-settings-on.jpg",
+        ".impeccable/review/places-settings-compact24.jpg",
+        ".impeccable/review/places-palette-compact24.jpg",
+        ".impeccable/review/places-verdict.md"
       ],
       "unverified": [
         "Screen-reader behavior",
@@ -119,6 +126,15 @@
         "verdict": ".impeccable/review/lifecycle-verdict.md",
         "native": "Rename receipts; Tab/Shift-Tab and Enter/Space Undo with fixture bytes checked; Cmd-W; sort/reverse, keyboard resize, optional columns, orientation, named Save/Open restoring views/weights; desktop13pt and compact24pt.",
         "limits": "Offline local fixtures. Pointer divider resize, live SSH/S3, mounted-volume move, IME, VoiceOver and every user theme were not exercised."
+      },
+      "placesSource": "crates/buckets-app/src/places.rs",
+      "placesVerification": {
+        "date": "2026-10-23",
+        "buildUuid": "DA9E4672-ABBB-3DF0-8B5D-0F6D754616A7",
+        "status": "ship within unified Places refinement scope",
+        "verdict": ".impeccable/review/places-verdict.md",
+        "native": "Shared sidebar/palette order; keyboard local navigation; Settings builtin toggle and disk save; saved rename preserving target; relaunch; compact24pt selected controls and palette.",
+        "limits": "Offline fixtures; saved/builtin path identity edge cases established by tests. No live providers, IME, VoiceOver, pointer sidebar navigation or complete JSON editing pass."
       }
     },
     "typographyMeta": {

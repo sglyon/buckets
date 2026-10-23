@@ -177,9 +177,9 @@ Search and Split are quiet inline controls. Commands uses a raised, gently round
 
 The GPUI input component uses the 13px default theme and the resolved accent caret. Prompt panels are raised, bordered and gently rounded; their border is blue normally and rose for delete. Palette rows highlight the current command and change surface on hover. Native text editing belongs to the input component rather than a painted text imitation.
 
-### Settings and bookmarks
+### Settings and Places
 
-Settings is a full native workspace surface with a chrome header, filter, category control, scrolling preference rows and a persistent outcome/footer area. Rows reuse background, raised-surface, cyan-focus, green-value and muted-description tokens. The category sequence is All, Appearance, Browsing, Bookmarks, Plugins, Shortcuts and Advanced: activating the category control advances one step, while Left / Right move backward or forward when that control is selected. Typing in the settings filter returns the category to All. Text-size decrement and increment rows disable at 9pt and 24pt and show `Minimum · 9pt` or `Maximum · 24pt`.
+Settings is a full native workspace surface with a chrome header, filter, category control, scrolling preference rows and a persistent outcome/footer area. Rows reuse background, raised-surface, cyan-focus, green-value and muted-description tokens. The category sequence is All, Appearance, Browsing, Places, Plugins, Shortcuts and Advanced: activating the category control advances one step, while Left / Right move backward or forward when that control is selected. Typing in the settings filter returns the category to All. Text-size decrement and increment rows disable at 9pt and 24pt and show `Minimum · 9pt` or `Maximum · 24pt`.
 
 Shortcut rows use the same preference-row treatment. Their descriptions expose Files, Workspace or Global scope, the stable action ID, recording instructions and defaults. The value shows all effective alternatives inline or `Unbound`; Enter opens an attached recorder that keeps the saved value visible. One recorded chord replaces all alternatives only after Apply. Additional alternatives remain editable in JSON. A separate Reset row appears only for an override and removes it to restore defaults.
 
@@ -187,7 +187,7 @@ The recorder separates a glyph-form candidate and `Not saved · replaces all alt
 
 Appearance rows now expose the two requested/effective font families and 13 semantic color values with swatches. Each override has a reset path; clearing a color restores its default. Reset fonts and colors restores bundled fonts, Tokyo Night colors and the terminal ANSI palette while preserving text size and unrelated preferences. Validation and durable save precede live application, including existing terminal panes. These are implemented code facts; their new native presentation and interactive behavior remain unreviewed because the theme UI connection was unavailable.
 
-Bookmarks appear as cyan-folder rows under Places and as paired Rename / Remove rows in Settings. Their labels may truncate in the sidebar, while the saved canonical location remains the navigation source and appears as the Settings description.
+Places is one list: saved locations first, followed by enabled built-ins, with redundant built-in targets omitted. Saved locations retain cyan folder icons and their stored order; the extra Bookmarks subsection is removed. Settings → Places contains built-in visibility toggles and paired Rename / Remove rows for saved locations. Labels may truncate in the sidebar, while the full canonical location remains the navigation source and the Settings description. Launch directory replaces the ambiguous Workspace label.
 
 ### Inline filename filter
 
@@ -329,7 +329,7 @@ The typography and authored chrome dimensions above describe the default base. T
 
 ## Settings
 
-Command-comma opens or focuses a full workspace settings page while preserving the underlying file panes and terminal entities. The implemented filter and category control organize Appearance, Browsing, Bookmarks, Plugins, Shortcuts and Advanced rows. Each row shows its value and a description; cyan borders identify the current control. Tab / Shift-Tab moves through controls, Enter or Space activates the current row, and Left / Right cycles the selected category control.
+Command-comma opens or focuses a full workspace settings page while preserving the underlying file panes and terminal entities. The implemented filter and category control organize Appearance, Browsing, Places, Plugins, Shortcuts and Advanced rows. Each row shows its value and a description; cyan borders identify the current control. Tab / Shift-Tab moves through controls, Enter or Space activates the current row, and Left / Right cycles the selected category control.
 
 Common controls persist immediately in settings.json. Plugins declare optional typed settings fields; the host renders enabled state plus Boolean, select, number, string and path fields generically. Advanced JSON supports the complete configuration with Command-S validation/save and explicit reload. Errors retain the last applied settings and draft. Closing, quitting or reloading with a dirty draft presents the corresponding save/discard/keep-editing choices. Escape or Command-W returns to the previous workspace focus. Settings rows, JSON actions and recovery states scroll or wrap within 960×640 at the 24-point maximum.
 
@@ -337,7 +337,7 @@ The `keybindings` object in settings.json maps stable action IDs to arrays of al
 
 Scopes preserve input ownership. Files shortcuts run only while browsing. Workspace shortcuts also cover terminal panes, and Global shortcuts apply across the app; Workspace and Global overrides require a Command chord or function key. Native editor undo/redo and clipboard actions, Command-S in the JSON editor, raw terminal input, Settings navigation, and fixed file-navigation keys remain outside this configurable registry.
 
-Bookmarks use the existing Places rows and command palette. Command-Shift-B names the current location; labels identify saved places while the complete provider URL remains the navigation source. Settings and the palette expose rename/remove actions and show the location. Long locations wrap or truncate without altering the stored host, path, endpoint or Git reference. Adding an existing canonical location updates its name.
+Places uses the sidebar rows and command palette with the same effective list. Command-Shift-B names the current location; saved places retain the `bookmarks` persistence key and stable shortcut IDs while the complete provider URL remains the navigation source. Settings and the palette expose rename/remove actions and show the location. Long locations wrap or truncate without altering the stored host, path, endpoint or Git reference. Adding an existing canonical location updates its name.
 
 ## Native menus
 
@@ -379,3 +379,10 @@ limits live in `.impeccable/review/lifecycle-verdict.md` and
 `docs/verification.md`; pointer divider resizing and assistive technology were
 not exercised in this pass. The vertical capture is from the initial batch;
 remaining lifecycle captures show the final build.
+
+The 2026-10-23 Places refinement received native desktop13pt / compact24pt
+verification on UUID `DA9E4672-ABBB-3DF0-8B5D-0F6D754616A7`: one list, matching
+palette targets, Settings toggle save, rename retaining location, restart and
+compact keyboard reachability. See `.impeccable/review/places-verdict.md` and
+`docs/verification.md` for exact evidence and limits. No visual identity or token
+changes were introduced.

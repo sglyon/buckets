@@ -36,7 +36,7 @@ These are the defaults. Change application and plugin shortcuts in **Settings �
 | ⌘Option-] / [ | Grow / shrink the active pane |
 | ⌘Shift-J | Operations and recovery |
 | ⌘L | Enter a path or connect to a location |
-| ⌘Shift-B | Bookmark the current location |
+| ⌘Shift-B | Save the current location to Places |
 | ⌘K | Search and run commands |
 | ⌘, | Open Settings |
 | ⌘− / ⌘+; ⌘0 | Decrease / increase text size; reset to default |
@@ -116,7 +116,7 @@ Git row badges come from the Git status plugin, including changed descendants on
 
 ## Settings
 
-Press **⌘,** to open Settings. Filter preferences, then use Tab / Shift-Tab and Enter to change text size, hidden files, sidebar, preview, and plugin options. The category control beside search cycles through Appearance, Browsing, Bookmarks, Plugins, Shortcuts and Advanced; use Left / Right when it is focused. Changes save and apply immediately. Escape or ⌘W returns to the workspace; existing terminal processes keep running. Unsaved JSON prompts before closing Settings or quitting the app.
+Press **⌘,** to open Settings. Filter preferences, then use Tab / Shift-Tab and Enter to change text size, hidden files, sidebar, preview, and plugin options. The category control beside search cycles through Appearance, Browsing, Places, Plugins, Shortcuts and Advanced; use Left / Right when it is focused. Changes save and apply immediately. Escape or ⌘W returns to the workspace; existing terminal processes keep running. Unsaved JSON prompts before closing Settings or quitting the app.
 
 Preferences live in `~/.config/buckets/settings.json`, or `$BUCKETS_CONFIG_DIR/settings.json` when configured. Choose **Edit settings.json** for the built-in JSON editor, then **⌘S** to validate and save. The file uses strict JSON, without comments. After editing it in another program, choose **Reload from disk**. Unsaved drafts and external-edit conflicts require an explicit save/discard choice.
 
@@ -172,10 +172,13 @@ Color keys are `background`, `chrome`, `surface`, `border`, `text`, `muted`, `ac
 
 Plugin configuration merges with each manifest's defaults. Settings offers controls declared by the plugin; arbitrary nested configuration remains available in JSON. Workspace locations are stored separately in `workspace.json`. Existing appearance preferences migrate on the first launch without a settings file.
 
-Bookmarks live in the same settings file. Each entry has a name and the full location URL, retaining SSH hosts and paths, S3-compatible endpoints, and Git references. Open saved locations from Places or the command palette. For example:
+Places combines your saved locations with optional built-in shortcuts in one list. Saved locations appear first, in their stored order; a duplicate built-in target is omitted. Press **⌘Shift-B** to save the current location, or **⌘K → Open Places** to navigate by keyboard. In **Settings → Places**, rename/remove saved locations and toggle Home, Desktop, Downloads, Launch directory and Root. Launch directory is the directory the app started in; named workspaces are separate. **⌘B** toggles the sidebar, which hides automatically in compact layouts.
+
+Saved locations continue to use the `bookmarks` array in settings.json, preserving existing entries and full SSH hosts/paths, S3-compatible endpoints and Git references. Edit locations and ordering through **Edit settings.json**, or reload after an external edit. For example, this keeps only Home and Downloads among the built-in shortcuts:
 
 ```json
 {
+  "places": { "builtins": ["home", "downloads"] },
   "bookmarks": [
     { "name": "Remote projects", "location": "ssh://my-host/home/me/projects" },
     { "name": "Build artifacts", "location": "s3://my-bucket/builds?endpoint=https%3A%2F%2Fs3.example.com" }
@@ -183,7 +186,9 @@ Bookmarks live in the same settings file. Each entry has a name and the full loc
 }
 ```
 
-SSH authentication continues to use your SSH configuration and agent. Bookmarks store locations, not passwords or private keys.
+The built-in IDs are `home`, `desktop`, `downloads`, `launch_directory` and `root`. An empty `builtins` array shows only saved locations; omitting `places` retains the default shortcuts. Hiding a shortcut does not disable its direct Go command. Existing `bookmark.add` / `bookmark.open` shortcut IDs remain compatible.
+
+SSH authentication continues to use your SSH configuration and agent. Saved places store locations, not passwords or private keys.
 
 ## Development
 
