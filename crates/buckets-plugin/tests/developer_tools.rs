@@ -1,4 +1,6 @@
-use buckets_plugin::{CommandResult, DecorationRequest, DecorationTone, PluginRegistry};
+use buckets_plugin::{
+    CommandContext, CommandResult, DecorationRequest, DecorationTone, PluginRegistry,
+};
 use serde_json::json;
 use std::{
     fs,
@@ -327,4 +329,102 @@ fn terminal_request_requires_capability_permission_and_valid_bounded_argv() {
         fs::write(plugin.path().join("plugin.py"),format!("import json,sys\nr=json.load(sys.stdin)\nprint(json.dumps({{'jsonrpc':'2.0','id':r['id'],'result':json.loads({})}}))",serde_json::to_string(&invalid.to_string()).unwrap())).unwrap();
         assert!(invoke().is_err(), "accepted invalid {field}");
     }
+}
+
+#[test]
+fn native_tools_command_line_paths_override_selection_without_shell_interpolation() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().canonicalize().unwrap();
+    let child = directory.join("space 'quote' $(touch NO)");
+    fs::create_dir(&child).unwrap();
+    let selected = directory.join("selected.txt");
+    fs::write(&selected, "selected").unwrap();
+    let (_plugin, registry) = example(
+        "native-tools",
+        &directory,
+        json!({"nvim":"/bin/echo","lazygit":"/bin/echo","shell":"/bin/sh"}),
+    );
+    let commands = registry.commands("native-tools").unwrap();
+    let command = |id: &str| commands.iter().find(|command| command.id == id).unwrap();
+    assert_eq!(
+        command("open_nvim").command_line.as_ref().unwrap().name,
+        "nvim"
+    );
+    let context = || CommandContext {
+        location: directory.to_string_lossy().into_owned(),
+        selected: vec![selected.to_string_lossy().into_owned()],
+    };
+    let cancelled = std::sync::atomic::AtomicBool::new(false);
+    let argument = "new 'file' $(touch NO).rs";
+    let CommandResult::Terminal(request) = registry
+        .invoke_command_line_result(
+            "native-tools",
+            command("open_nvim"),
+            context(),
+            vec![argument.into()],
+            &cancelled,
+        )
+        .unwrap()
+    else {
+        panic!("terminal expected")
+    };
+    assert_eq!(
+        request.args,
+        vec![
+            "--".to_string(),
+            directory.join(argument).to_string_lossy().into_owned()
+        ]
+    );
+    assert!(!directory.join("NO").exists());
+    let new_uri_path = directory.join("new URI file.rs");
+    let new_uri = format!(
+        "file://{}",
+        new_uri_path.to_string_lossy().replace(' ', "%20")
+    );
+    let CommandResult::Terminal(request) = registry
+        .invoke_command_line_result(
+            "native-tools",
+            command("open_nvim"),
+            context(),
+            vec![new_uri],
+            &cancelled,
+        )
+        .unwrap()
+    else {
+        panic!("terminal expected")
+    };
+    assert_eq!(
+        request.args,
+        vec![
+            "--".to_string(),
+            new_uri_path.to_string_lossy().into_owned()
+        ]
+    );
+    let CommandResult::Terminal(request) = registry
+        .invoke_command_line_result(
+            "native-tools",
+            command("open_terminal"),
+            context(),
+            vec![child.file_name().unwrap().to_string_lossy().into_owned()],
+            &cancelled,
+        )
+        .unwrap()
+    else {
+        panic!("terminal expected")
+    };
+    assert_eq!(request.cwd, child);
+    assert_eq!(request.args, ["-l"]);
+    let mut remote = context();
+    remote.location = "ssh://offline-host/srv".into();
+    assert!(
+        registry
+            .invoke_command_line_result(
+                "native-tools",
+                command("open_nvim"),
+                remote,
+                vec![],
+                &cancelled
+            )
+            .is_err()
+    );
 }

@@ -13,6 +13,15 @@ await servePlugin({ handlers: {
 } });
 ```
 
+For typed commands, use `commandHandlers([{ descriptor, run }])` with
+`servePlugin`. `CommandDescriptor.command_line` optionally declares a name,
+aliases, positional arguments, static choice/path completion hints and provider
+availability. `run` receives the submitting pane's frozen
+`{location, selected, user_args?}` and the normal request context. Arguments stay
+separate strings; never join them into shell text. Legacy palette/shortcut calls
+may omit `user_args`. See [the command contract](../../docs/plugins.md#command-line-registration)
+for examples, bounds and cancellation guarantees.
+
 For duplex services, `ctx.host.call('files.read', {location})` returns the host's
 validated result. `ctx.notify('agent.progress', {request_id, message})` reports
 legacy status. Add an optional `update` with an increasing `sequence`, full

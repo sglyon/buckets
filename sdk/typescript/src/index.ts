@@ -198,3 +198,96 @@ export interface AccountState {
   sign_in_label?: string;
   plan_label?: string;
 }
+
+/** Static, language-independent command metadata; listing must not probe paths. */
+
+export type CommandLocation = 'local' | 'ssh' | 's3' | 'git' | 'plugin';
+export type CommandArgumentKind = 'text' | 'path' | 'directory' | 'choice';
+export interface CommandArgument {
+  name: string;
+  kind?: CommandArgumentKind;
+  required?: boolean;
+  variadic?: boolean;
+  choices?: string[];
+}
+export interface CommandLineSpec {
+  name: string;
+  aliases?: string[];
+  arguments?: CommandArgument[];
+  /** Empty/omitted accepts every provider; never performs a network probe. */
+  locations?: CommandLocation[];
+  unavailable_reason?: string;
+}
+export interface CommandDescriptor {
+  id: string;
+  title: string;
+  description?: string;
+  shortcut?: string;
+  command_line?: CommandLineSpec;
+}
+export interface CommandArguments {
+  /** A frozen location and selection from the pane that submitted the request. */
+  location: string;
+  selected: string[];
+  /** Absent for legacy palette/shortcut callers. Never join/reparse as shell. */
+  user_args?: string[];
+}
+export interface TerminalLaunchRequest {
+  program: string;
+  args?: string[];
+  cwd: string;
+  title: string;
+  env?: Record<string, string>;
+}
+export interface CommandRegistration {
+  descriptor: CommandDescriptor;
+  run(arguments_: CommandArguments, context: RequestContext): unknown | Promise<unknown>;
+}
+
+const byteLength = (value: string) => Buffer.byteLength(value, 'utf8');
+function strings(value: unknown, maxCount: number, maxBytes: number, total: number): value is string[] {
+  return Array.isArray(value) && value.length <= maxCount && value.every(item =>
+    typeof item === 'string' && !item.includes('\0') && byteLength(item) <= maxBytes) &&
+    value.reduce((sum: number, item: string) => sum + byteLength(item), 0) <= total;
+}
+
+/** Convenience handlers over the unchanged v1 envelope. The Rust host validates
+ * descriptor metadata, permissions, provider availability and typed host actions.
+ * Generic servePlugin handlers remain available for legacy/custom commands.
+ */
+export function commandHandlers(registrations: readonly CommandRegistration[]): Record<string, Handler> {
+  const commands = new Map<string, CommandRegistration>();
+  for (const entry of registrations) {
+    if (commands.has(entry.descriptor.id)) throw new RpcError(-32602, 'Duplicate command ID');
+    commands.set(entry.descriptor.id, entry);
+  }
+  return {
+    'commands.list': () => registrations.map(entry => entry.descriptor),
+    'commands.invoke': async (params, context) => {
+      const envelope = params as Invocation | undefined;
+      const request = envelope?.request as { command?: unknown; arguments?: unknown } | undefined;
+      const command = typeof request?.command === 'string' ? commands.get(request.command) : undefined;
+      if (!command) throw new RpcError(-32602, 'Unknown command ID');
+      const value = request?.arguments as Partial<CommandArguments> | undefined;
+      if (!value || typeof value.location !== 'string' || !value.location || value.location.includes('\0') || byteLength(value.location) > 32768 ||
+        !strings(value.selected, 10000, 32768, 524288) || value.selected.some(item => !item) ||
+        (value.user_args !== undefined && !strings(value.user_args, 256, 32768, 131072)))
+        throw new RpcError(-32602, 'Invalid frozen command arguments');
+      const argv = value.user_args;
+      const spec = command.descriptor.command_line;
+      if (argv !== undefined && spec) {
+        const definitions = spec.arguments ?? [];
+        const required = definitions.filter(arg => arg.required).length;
+        if (argv.length < required || (!definitions.at(-1)?.variadic && argv.length > definitions.length))
+          throw new RpcError(-32602, 'Invalid command argument count');
+        for (let i = 0; i < argv.length; i++) {
+          const definition = definitions[i] ?? definitions.at(-1);
+          if (definition?.kind === 'choice' && !definition.choices?.includes(argv[i]))
+            throw new RpcError(-32602, `Invalid value for argument ${definition.name}`);
+        }
+      }
+      if (context.signal.aborted) throw new RpcError(-32098, 'Command cancelled');
+      return command.run({ location: value.location, selected: [...value.selected], ...(argv === undefined ? {} : { user_args: [...argv] }) }, context);
+    },
+  };
+}

@@ -245,7 +245,7 @@ example sends files to an embedding service.
 ## Commands capability
 
 `commands.list` receives null and returns an array of
-`{id,title,description,shortcut?}`. Shortcut strings use the application's GPUI
+`{id,title,description,shortcut?,command_line?}`. Shortcut strings use the application's GPUI
 key syntax, such as `ctrl-e` or `alt-enter`. Shortcuts are suggestions: the
 application resolves collisions and reserves its essential navigation keys.
 The host bounds descriptors (256 commands, 128-character titles, 512-character
@@ -271,6 +271,86 @@ Build the standalone Rust example with
 The JavaScript manifest runs the `.mjs` counterpart directly with Node 18+;
 `plugin.ts` provides the typed version for a TypeScript build pipeline.
 
+### Command-line registration
+
+The optional `command_line` object registers static names and positional
+arguments for Buckets' `:` command line. Existing descriptors, palette entries,
+shortcuts and arbitrary legacy `arguments` remain compatible. Every installed
+command has a qualified `plugin:<plugin-id>/<command-id>` name; registration
+adds short names and aliases. Built-in names remain reserved. Ambiguous aliases
+never silently choose a plugin: use the qualified name. Disabled plugins cannot
+be invoked.
+
+```json
+{"id":"open_nvim","title":"Open in Neovim","command_line":{
+  "name":"nvim","aliases":[],
+  "arguments":[{"name":"paths","kind":"path","variadic":true}],
+  "locations":["local"],"unavailable_reason":"Neovim requires a local directory"
+}}
+```
+
+Argument kinds are `text`, `path`, `directory`, and `choice`. `required` defaults
+to false; required arguments precede optional ones. Only the final argument may
+be `variadic`. Choice arguments require nonempty unique `choices`; other kinds
+omit them. Path/directory hints let the host offer provider-aware completion;
+choices are static literal candidates. No per-key plugin RPC is used. Static
+`locations` restrict provider support to `local`, `ssh`, `s3`, `git` or `plugin`;
+omitted/empty accepts every provider. This does not probe network reachability
+or executable presence.
+
+Names and aliases contain 1–64 ASCII letters, digits, `-`, `_` or `.`. There are
+at most 16 aliases and 32 argument definitions per command. Repeated names
+within one plugin are rejected. Each choice has at most 256 characters with no
+control characters, and an argument has at most 128 choices. Unknown metadata
+fields, invalid order and malformed descriptors fail discovery with an error.
+
+Submission retains the normal `commands.invoke` request, adding literal argv:
+
+```json
+{"command":"open_nvim","arguments":{"location":"/home/me/project","selected":["/home/me/project/current.rs"],"user_args":["src/main.rs","a file.rs"]}}
+```
+
+`location` and `selected` are frozen from the submitting pane; later navigation
+does not retarget the request. Palette/shortcut calls may omit `user_args`.
+The host validates counts and choices before starting a command-line plugin.
+At most 256 arguments, 32 KiB each and 128 KiB combined are accepted; NUL is
+rejected. Do not join/reparse arguments as shell text. Return ordinary JSON such
+as `{"message":"Index rebuilt"}` or an existing terminal/agent host action;
+host actions retain their permission checks.
+
+TypeScript authors can use the SDK helper:
+
+```typescript
+import { commandHandlers, servePlugin } from '@buckets/plugin-sdk';
+await servePlugin({ handlers: commandHandlers([{
+  descriptor: { id: 'index', title: 'Rebuild index', command_line: {
+    name: 'reindex', arguments: [
+      { name: 'mode', kind: 'choice', choices: ['changed', 'all'] },
+    ],
+  } },
+  run: async ({ location, user_args = [] }, context) => {
+    context.signal.throwIfAborted();
+    return { message: `Requested ${user_args[0] ?? 'changed'} indexing at ${location}` };
+  },
+}]) });
+```
+
+Python reads `params["request"]["arguments"].get("user_args", [])` and passes
+values separately to subprocess argv. Rust authors can deserialize `CommandContext`
+and read `user_args` from the arguments object; the SDK exports
+`CommandDescriptor`, `CommandLineSpec`, `CommandArgument` and their enums.
+Rust `serve_once` and generic TypeScript handlers remain compatible.
+
+`PluginRegistry::invoke_command_line_result` validates a cached descriptor,
+frozen `CommandContext` and argv with an `AtomicBool` cancellation token.
+`invoke_command_result_cancellable` provides process cancellation for legacy
+commands. Cancellation stops/reaps the invocation process and group; the UI
+rejects cancelled or stale results before creating a pane. It cannot undo effects
+already performed, including an external app already launched. One-shot process
+cancellation does not promise an SDK `AbortSignal`; persistent SDK handlers can
+also receive `$/cancelRequest`. A terminal already handed to the host has its own
+PTY lifetime.
+
 ### Developer tools in your terminal
 
 `examples/plugins/native-tools` adds three embedded-terminal commands and three
@@ -288,6 +368,17 @@ is the active pane's location string; `selected` is an array of selected file
 location strings. The example also accepts legacy `selection`. Remote URLs
 are rejected with a useful message; mount the filesystem before opening local
 developer tools against it.
+
+Command-line registrations add `:nvim [paths…]`, `:lazygit [directory]` (alias
+`:git`), and `:terminal [directory]` (alias `:term`). These tools remain plugin
+commands; only `split`, `cd`, `rename` and `settings` are built-in verbs.
+`:plugin:native-tools/open_terminal [directory]` explicitly selects this plugin.
+`nvim-iterm2`, `lazygit-iterm2` and
+`terminal-iterm2` retain the external option. Relative arguments resolve against
+the frozen local directory. Neovim accepts new file paths and falls back to the
+selection without arguments; Lazygit/shell accept one existing directory. These
+are path positionals, not executable options. The plugin commands are local-only,
+independently of the host's shell-command provider support.
 
 The default target is the app's embedded terminal. The Python plugin chooses the
 program, arguments and directory; the host owns the PTY and renders its output.

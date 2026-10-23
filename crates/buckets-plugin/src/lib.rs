@@ -7,6 +7,8 @@ mod agent;
 pub use agent::*;
 mod accounts;
 pub use accounts::*;
+mod commands;
+pub use commands::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -182,6 +184,8 @@ pub struct CommandDescriptor {
     pub description: String,
     #[serde(default)]
     pub shortcut: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_line: Option<CommandLineSpec>,
 }
 
 /// A host-owned PTY request. Each argument stays an argument; the host must not
@@ -535,44 +539,21 @@ impl PluginRegistry {
             "Plugin returned more than 256 commands"
         );
         let mut seen = BTreeSet::new();
+        let mut cli_names = BTreeSet::new();
         for command in &commands {
-            ensure!(
-                !command.id.is_empty()
-                    && command.id.len() <= 128
-                    && command
-                        .id
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)),
-                "Invalid plugin command id"
-            );
+            command.validate()?;
             ensure!(
                 seen.insert(&command.id),
                 "Duplicate plugin command id {}",
                 command.id
             );
-            ensure!(
-                !command.title.is_empty()
-                    && command.title.chars().count() <= 128
-                    && !command.title.chars().any(char::is_control),
-                "Invalid plugin command title"
-            );
-            ensure!(
-                command.description.chars().count() <= 512
-                    && !command
-                        .description
-                        .chars()
-                        .any(|c| c.is_control() && c != '\n'),
-                "Invalid plugin command description"
-            );
-            if let Some(shortcut) = &command.shortcut {
-                ensure!(
-                    !shortcut.is_empty()
-                        && shortcut.len() <= 64
-                        && shortcut
-                            .chars()
-                            .all(|c| c.is_ascii_alphanumeric() || "- +".contains(c)),
-                    "Invalid plugin shortcut"
-                );
+            if let Some(spec) = &command.command_line {
+                for name in std::iter::once(&spec.name).chain(&spec.aliases) {
+                    ensure!(
+                        cli_names.insert(name),
+                        "Duplicate command-line name or alias {name}"
+                    );
+                }
             }
         }
         Ok(commands)
@@ -649,6 +630,58 @@ impl PluginRegistry {
             json!({"command":command,"arguments":arguments}),
         )?;
         self.command_result(plugin, value)
+    }
+
+    /// Cancellation stops this invocation process, but cannot undo plugin-owned
+    /// effects already performed. Callers must also reject stale UI completions.
+    pub fn invoke_command_result_cancellable(
+        &self,
+        id: &str,
+        command: &str,
+        arguments: Value,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<CommandResult> {
+        let plugin = self.require(id, Capability::Commands)?;
+        let request = RpcRequest {
+            jsonrpc: "2.0".into(),
+            id: 1,
+            method: "commands.invoke".into(),
+            params: json!({"request":{"command":command,"arguments":arguments},"config":plugin.config,"protocol_version":PROTOCOL_VERSION}),
+        };
+        let value = run_plugin_cancellable(plugin, &request, Some(cancelled))
+            .with_context(|| format!("Plugin {} (commands.invoke)", plugin.id))?;
+        ensure!(
+            !cancelled.load(std::sync::atomic::Ordering::Acquire),
+            "Plugin command cancelled"
+        );
+        self.command_result(plugin, value)
+    }
+
+    /// Dispatch a cached, validated descriptor with a frozen pane snapshot.
+    /// No commands.list request or shell interpolation occurs during dispatch.
+    pub fn invoke_command_line_result(
+        &self,
+        id: &str,
+        descriptor: &CommandDescriptor,
+        context: CommandContext,
+        user_args: Vec<String>,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<CommandResult> {
+        self.require(id, Capability::Commands)?;
+        descriptor.validate()?;
+        let spec = descriptor
+            .command_line
+            .as_ref()
+            .context("Command has no command-line registration")?;
+        context.validate()?;
+        spec.check_location(&context.location)?;
+        spec.validate_arguments(&user_args)?;
+        self.invoke_command_result_cancellable(
+            id,
+            &descriptor.id,
+            json!({"location":context.location,"selected":context.selected,"user_args":user_args}),
+            cancelled,
+        )
     }
 
     fn command_result(&self, plugin: &PluginManifest, value: Value) -> Result<CommandResult> {
@@ -895,6 +928,17 @@ fn terminate(child: &mut Child) {
 }
 
 fn run_plugin(plugin: &PluginManifest, request: &RpcRequest) -> Result<Value> {
+    run_plugin_cancellable(plugin, request, None)
+}
+
+fn run_plugin_cancellable(
+    plugin: &PluginManifest,
+    request: &RpcRequest,
+    cancelled: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Value> {
+    let is_cancelled =
+        || cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire));
+    ensure!(!is_cancelled(), "Plugin command cancelled");
     let mut input = serde_json::to_vec(request)?;
     ensure!(
         input.len() < MAX_REQUEST_BYTES,
@@ -952,6 +996,10 @@ fn run_plugin(plugin: &PluginManifest, request: &RpcRequest) -> Result<Value> {
     let deadline = Instant::now() + Duration::from_millis(plugin.timeout_ms);
     let mut output = None;
     let status = loop {
+        if is_cancelled() {
+            terminate(&mut child);
+            bail!("Plugin command cancelled");
+        }
         if let Ok(data) = rx.try_recv() {
             let data = match data {
                 Ok(data) => data,
@@ -981,6 +1029,7 @@ fn run_plugin(plugin: &PluginManifest, request: &RpcRequest) -> Result<Value> {
         thread::sleep(Duration::from_millis(5));
     };
     terminate(&mut child);
+    ensure!(!is_cancelled(), "Plugin command cancelled");
     let output = match output {
         Some(output) => output,
         None => rx

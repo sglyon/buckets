@@ -23,8 +23,24 @@ COMMANDS = [
     {"id":"open_terminal_iterm2", "title":"Open terminal in iTerm2", "description":"Start an external iTerm2 shell at the current local directory"},
 ]
 
+# Discovery metadata is static: typing never probes executables or a provider.
+for descriptor, name, aliases, kind, argument_name in zip(
+    COMMANDS,
+    ["nvim", "lazygit", "terminal", "nvim-iterm2", "lazygit-iterm2", "terminal-iterm2"],
+    [[], ["git"], ["term"], [], [], []],
+    ["path", "directory", "directory", "path", "directory", "directory"],
+    ["paths", "directory", "directory", "paths", "directory", "directory"],
+):
+    descriptor["command_line"] = {
+        "name": name,
+        "aliases": aliases,
+        "arguments": [{"name": argument_name, "kind": kind, "variadic": kind == "path"}],
+        "locations": ["local"],
+        "unavailable_reason": "Developer tools require a local directory; connect or mount this location first",
+    }
 
-def local_path(value):
+
+def local_path(value, must_exist=True):
     if value.startswith("file://"):
         url = urlparse(value)
         if url.netloc not in ("", "localhost"):
@@ -35,7 +51,7 @@ def local_path(value):
     path = Path(value)
     if not path.is_absolute():
         raise ValueError("Developer tools require an absolute local path")
-    if not path.exists():
+    if must_exist and not path.exists():
         raise ValueError(f"Local path does not exist: {path}")
     return path
 
@@ -59,9 +75,26 @@ def command_spec(command, arguments, config):
     selected = arguments.get("selected", arguments.get("selection", arguments.get("selected_files", [])))
     if not isinstance(selected, list) or not all(isinstance(item, str) for item in selected):
         raise ValueError("selected must be an array of local paths")
+    user_args = arguments.get("user_args", [])
+    if (not isinstance(user_args, list) or len(user_args) > 256
+            or not all(isinstance(item, str) and "\0" not in item and len(item.encode()) <= 32768 for item in user_args)
+            or sum(len(item.encode()) for item in user_args) > 131072):
+        raise ValueError("user_args must be a bounded array of literal path arguments")
+    paths = []
+    for value in user_args:
+        if "://" in value:
+            path = local_path(value, must_exist=command != "open_nvim")
+        else:
+            path = Path(value).expanduser()
+            if not path.is_absolute():
+                path = directory / path
+        paths.append(path)
     if command == "open_nvim":
         argv = [executable(config.get("nvim", "nvim"), "Neovim"), "--"]
-        argv.extend(str(local_path(path)) for path in selected)
+        if user_args:
+            argv.extend(str(path) for path in paths)
+        else:
+            argv.extend(str(local_path(path)) for path in selected)
         title = "Neovim"
     elif command == "open_lazygit":
         argv = [executable(config.get("lazygit", "lazygit"), "Lazygit")]
@@ -71,6 +104,10 @@ def command_spec(command, arguments, config):
         title = "Terminal"
     else:
         raise ValueError(f"Unknown developer tool command: {command}")
+    if command != "open_nvim" and paths:
+        if len(paths) != 1 or not paths[0].is_dir():
+            raise ValueError("Pass one existing local directory")
+        directory = paths[0]
     environment = {}
     if sys.platform == "darwin":
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "/usr/bin:/bin")
