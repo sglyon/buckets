@@ -2,7 +2,12 @@
 mod agent;
 mod location;
 pub use agent::{AgentBroker, AgentRoot};
+mod journal;
 mod operations;
+pub use journal::{
+    OperationAction, OperationItem, OperationItemState, OperationJournal, OperationPlan,
+    OperationProgress, OperationRecord, OperationState,
+};
 mod providers;
 mod search;
 mod spool;

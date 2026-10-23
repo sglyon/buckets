@@ -165,16 +165,27 @@ impl Backend {
     }
     /// Move to the operating system trash. Never permanently deletes user files.
     pub fn trash(&self, location: &Location) -> Result<()> {
+        self.trash_with_receipt(location).map(|_| ())
+    }
+    /// Trash an entry and return its recoverable destination when the provider exposes it.
+    pub fn trash_with_receipt(&self, location: &Location) -> Result<Option<Location>> {
+        self.trash_with_receipt_at(location, None)
+    }
+    pub(crate) fn trash_with_receipt_at(
+        &self,
+        location: &Location,
+        trash_override: Option<&Path>,
+    ) -> Result<Option<Location>> {
         if let Location::Plugin { plugin, path } = location {
             return providers::plugin_request(
                 plugin,
                 "remove",
                 serde_json::json!({"path":path,"trash":true}),
             )
-            .map(|_| ());
+            .map(|_| None);
         }
         if let Location::Ssh { host, path } = location {
-            return remote_trash(host, path);
+            return remote_trash(host, path).map(|_| None);
         }
         if let Location::S3 {
             bucket,
@@ -195,7 +206,7 @@ impl Backend {
                 prefix: format!(".buckets-trash/{token}/{}", prefix.trim_start_matches('/')),
                 endpoint: endpoint.clone(),
             };
-            return self.move_s3(location, &target);
+            return self.move_s3(location, &target).map(|_| Some(target));
         }
         let Location::Local { path } = location else {
             bail!(
@@ -216,6 +227,7 @@ impl Backend {
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local/share"))
             .join("Trash/files");
+        let trash = trash_override.map(PathBuf::from).unwrap_or(trash);
         fs::create_dir_all(&trash)?;
         let trash_real = fs::canonicalize(&trash)?;
         ensure!(
@@ -245,10 +257,11 @@ impl Backend {
                 write_trash_info(&trash, &name, &canonical)?;
             }
             match rename_exclusive(path, &target) {
-                Ok(()) => return Ok(()),
+                Ok(()) => return Ok(Some(Location::local(target))),
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
                 Err(e) if e.raw_os_error() == Some(18) => {
-                    return crate::transfer::move_local_verified(path, &target);
+                    return crate::transfer::move_local_verified(path, &target)
+                        .map(|_| Some(Location::local(target)));
                 }
                 Err(e) => {
                     #[cfg(not(target_os = "macos"))]
@@ -270,7 +283,7 @@ impl Backend {
         bail!("Could not find a unique trash name")
     }
 }
-fn validate_destination(src: &Path, dst: &Path) -> Result<()> {
+pub(crate) fn validate_destination(src: &Path, dst: &Path) -> Result<()> {
     ensure!(
         src.file_name().is_some(),
         "Cannot operate on a filesystem root"
