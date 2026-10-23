@@ -27,8 +27,10 @@ working SDK. GPUI uses Metal; this app enables `runtime_shaders` in
 `crates/buckets-app/Cargo.toml`. Python 3.9+ is needed for bundled developer-tools
 and Python-backed acceptance fixtures. Use Node.js 24 LTS (24.11+) and npm for
 TypeScript development; Vite+ also supports Node 22.19+ on the 22.x line and
-Node 26+. CI uses Node 24. Optional integrations additionally
-need their own tools (`fd`, `rg`, SSH, AWS CLI, Neovim, Lazygit or FFF).
+Node 26+. CI uses Node 24. Install `ripgrep` (`rg`) and `fd` for the full Rust
+acceptance suite (`brew install ripgrep fd` on macOS); CI installs both explicitly.
+Optional integrations additionally need their own tools (SSH, AWS CLI, Neovim,
+Lazygit or FFF).
 
 Run commands from the repository root. Keep one default Cargo `target/` cache
 and use these settings for **every Cargo invocation**, including scripts:

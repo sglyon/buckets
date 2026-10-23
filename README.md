@@ -241,7 +241,9 @@ SSH authentication continues to use your SSH configuration and agent. Saved plac
 
 Start with [AGENTS.md](AGENTS.md) for repository boundaries, isolated QA and
 contribution commands. Python 3.9+ is needed for bundled tools and Python-backed
-tests. TypeScript development uses project-local Vite+ and npm; no global Vite+
+tests. Install `ripgrep` (`rg`) and `fd` for the full Rust acceptance suite
+(`brew install ripgrep fd` on macOS); CI installs these search tools explicitly.
+TypeScript development uses project-local Vite+ and npm; no global Vite+
 installation is required. Node.js 24 LTS (24.11+) is recommended and used by CI;
 Node 22.19+ on the 22.x line and Node 26+ are also supported.
 

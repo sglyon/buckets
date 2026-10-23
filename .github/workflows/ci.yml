@@ -19,6 +19,13 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install search test tools
+        run: |
+          brew install ripgrep fd
+          rg --version
+          fd --version
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm test
